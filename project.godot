@@ -27,10 +27,6 @@ project/assembly_name="SunshineClouds2"
 
 enabled=PackedStringArray("res://addons/SunshineClouds2/plugin.cfg")
 
-[rendering]
-
-anti_aliasing/quality/msaa_3d=3
-
 [shader_globals]
 
 Reflections={

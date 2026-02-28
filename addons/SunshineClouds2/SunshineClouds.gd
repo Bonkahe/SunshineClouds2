@@ -7,9 +7,9 @@ class_name SunshineCloudsGD
 
 @export_group("Basic Settings")
 @export_range(0, 1) var clouds_coverage : float = 0.874
-@export_range(0, 20) var clouds_density : float = 0.14
+@export_range(0, 20) var clouds_density : float = 0.4
 @export_range(0, 2) var atmospheric_density : float = 0.503
-@export_range(0, 10) var lighting_density : float = 0.982
+@export_range(0, 10) var lighting_density : float = 0.492
 @export_range(0, 1) var fog_effect_ground : float = 1.0
 @export_range(0, 1) var use_environment_fog : float = 0.0
 
@@ -33,8 +33,8 @@ class_name SunshineCloudsGD
 @export_range(0, 3) var clouds_detail_power : float = 1.075
 @export_range(0, 50000) var curl_noise_strength : float = 4500.0
 @export_range(0, 2) var lighting_sharpness : float = 0.38
-@export_range(0, 1) var wind_swept_range : float = 0.54
-@export_range(0, 5000) var wind_swept_strength : float = 0.0
+@export_range(0, 1) var wind_swept_range : float = 0.4
+@export_range(0, 5000) var wind_swept_strength : float = 2000.0
 
 @export var cloud_floor : float = 1500.0
 @export var cloud_ceiling : float = 25000.0
@@ -766,10 +766,10 @@ func _render_callback(effect_callback_type, render_data):
 			if (!positionQuerying && !positionResetting && positionQueries.size() > 0):
 				encode_sample_points()
 			
-			var prepass_x_groups = ((size.x - 1) / 8) + 1
-			var prepass_y_groups = ((size.y - 1) / 8) + 1
-			var x_groups = ((size.x - 1) / 8 / resscale) + 1
-			var y_groups = ((size.y - 1) / 8 / resscale) + 1
+			var prepass_x_groups = ((size.x - 1) / 32) + 1
+			var prepass_y_groups = ((size.y - 1) / 32) + 1
+			var x_groups = ((size.x - 1) / 32 / resscale) + 1
+			var y_groups = ((size.y - 1) / 32 / resscale) + 1
 			
 			for view in view_count:
 				var prepass_list = rd.compute_list_begin()

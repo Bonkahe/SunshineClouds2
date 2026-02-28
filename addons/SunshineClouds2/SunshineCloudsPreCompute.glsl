@@ -3,7 +3,7 @@
 
 #include "./CloudsInc.comp"
 
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 
 layout(binding = 0) uniform sampler2D depth_image;
 layout(r32f, binding = 1) uniform image2D output_depth_image;

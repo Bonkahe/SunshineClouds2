@@ -5,11 +5,11 @@
 [ext_resource type="CompressedTexture3D" uid="uid://b3uyfsp4in821" path="res://addons/SunshineClouds2/NoiseTextures/bluenoise_Dither.png" id="3_6wvml"]
 [ext_resource type="Script" uid="uid://bxlm4e5qfb7uu" path="res://addons/SunshineClouds2/SunshineCloudEffector.gd" id="3_afwv5"]
 [ext_resource type="Script" uid="uid://djusduuxf0voj" path="res://addons/SunshineClouds2/SunshineCloudsDriver.gd" id="3_unbdf"]
-[ext_resource type="Texture2D" uid="uid://de2nsujnhdlg0" path="res://addons/SunshineClouds2/NoiseTextures/ExtraLargeScaleNoise.tres" id="4_2j4np"]
+[ext_resource type="Texture2D" uid="uid://de2nsujnhdlg0" path="res://addons/SunshineClouds2/NoiseTextures/ExtraLargeScaleNoise.tres" id="4_g0kkk"]
 [ext_resource type="Texture2D" uid="uid://g02m2ewpwusq" path="res://addons/SunshineClouds2/NoiseTextures/HeightGradient.tres" id="5_tq3dl"]
 [ext_resource type="NoiseTexture3D" uid="uid://6ed3lvlpbqmg" path="res://addons/SunshineClouds2/NoiseTextures/LargeScaleNoise.tres" id="6_mnubm"]
 [ext_resource type="NoiseTexture3D" uid="uid://dxyewgt7o40m0" path="res://addons/SunshineClouds2/NoiseTextures/MediumScaleNoise.tres" id="7_f1cuh"]
-[ext_resource type="RDShaderFile" uid="uid://cpef10h5lggny" path="res://addons/SunshineClouds2/SunshineCloudsPostCompute.msaa.glsl" id="8_4bu1u"]
+[ext_resource type="RDShaderFile" uid="uid://cqhejbalsrvjp" path="res://addons/SunshineClouds2/SunshineCloudsPostCompute.glsl" id="8_0jtrb"]
 [ext_resource type="RDShaderFile" uid="uid://crfpk8ta4qxsk" path="res://addons/SunshineClouds2/SunshineCloudsPreCompute.glsl" id="9_penpr"]
 [ext_resource type="Script" uid="uid://dnblgqynq1t7l" path="res://addons/SunshineClouds2/SunshineClouds.gd" id="10_re0u6"]
 [ext_resource type="NoiseTexture3D" uid="uid://bnck2kxeg5bkg" path="res://addons/SunshineClouds2/NoiseTextures/SmallScaleNoise.tres" id="11_6b1a5"]
@@ -31,7 +31,7 @@ fog_density = 1.0
 fog_depth_begin = 2490.6
 fog_depth_end = 40000.0
 
-[sub_resource type="CompositorEffect" id="CompositorEffect_g0kkk"]
+[sub_resource type="CompositorEffect" id="CompositorEffect_0jtrb"]
 resource_local_to_scene = false
 resource_name = ""
 enabled = true
@@ -43,21 +43,21 @@ needs_normal_roughness = false
 script = ExtResource("10_re0u6")
 dither_noise = ExtResource("3_6wvml")
 height_gradient = ExtResource("5_tq3dl")
-extra_large_noise_patterns = ExtResource("4_2j4np")
+extra_large_noise_patterns = ExtResource("4_g0kkk")
 large_scale_noise = ExtResource("6_mnubm")
 medium_scale_noise = ExtResource("7_f1cuh")
 small_scale_noise = ExtResource("11_6b1a5")
 curl_noise = ExtResource("2_uu0np")
 pre_pass_compute_shader = ExtResource("9_penpr")
 compute_shader = ExtResource("1_0jtrb")
-post_pass_compute_shader = ExtResource("8_4bu1u")
+post_pass_compute_shader = ExtResource("8_0jtrb")
 wind_direction = Vector3(2, 0, 2)
-directional_lights_data = Array[Vector4]([Vector4(0.41753477, 0.55014515, -0.7231909, 32), Vector4(1, 1, 1, 1)])
+directional_lights_data = Array[Vector4]([Vector4(0.41753474, 0.55014515, -0.7231909, 32), Vector4(1, 1, 1, 1)])
 point_lights_data = Array[Vector4]([Vector4(10743.6, 6693.89, -43458.2, 20000), Vector4(0.76, 0.374933, 0.1824, 11.7)])
 point_effector_data = Array[Vector4]([Vector4(8262.199, 4970.841, -38297.613, 20000), Vector4(2, 0, 0, 0), Vector4(7401.0215, 4970.841, -38121.527, 16000), Vector4(-3, 0, 0, 0)])
 
 [sub_resource type="Compositor" id="Compositor_nuogy"]
-compositor_effects = Array[CompositorEffect]([SubResource("CompositorEffect_g0kkk")])
+compositor_effects = Array[CompositorEffect]([SubResource("CompositorEffect_0jtrb")])
 
 [sub_resource type="CylinderMesh" id="CylinderMesh_o8tia"]
 height = 1.0
@@ -76,7 +76,7 @@ environment = SubResource("Environment_ftegy")
 compositor = SubResource("Compositor_nuogy")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=2088703268]
-transform = Transform3D(-0.866025, -0.27507216, 0.4175342, 1.4901161e-08, 0.83506835, 0.55014545, -0.5, 0.47643942, -0.7231914, -8, 2, -2)
+transform = Transform3D(-0.8660249, -0.27507243, 0.41753483, 1.4901161e-08, 0.83506835, 0.55014527, -0.5, 0.4764392, -0.7231911, -8, 2, -2)
 shadow_enabled = true
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1641415156]
@@ -138,7 +138,7 @@ metadata/_custom_type_script = "uid://bxlm4e5qfb7uu"
 [node name="SunshineCloudsDriverGD" type="Node" parent="." unique_id=1968101892 node_paths=PackedStringArray("tracked_directional_lights", "tracked_point_lights", "tracked_point_effectors")]
 script = ExtResource("3_unbdf")
 update_continuously = true
-clouds_resource = SubResource("CompositorEffect_g0kkk")
+clouds_resource = SubResource("CompositorEffect_0jtrb")
 ambience_sample_environment = SubResource("Environment_ftegy")
 tracked_directional_lights = [NodePath("../DirectionalLight3D")]
 tracked_directional_light_shadow_steps = Array[int]([32])

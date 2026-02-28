@@ -19,5 +19,5 @@ depth_draw_mode = 2
 no_depth_test = true
 shading_mode = 0
 disable_fog = true
-albedo_color = Color(0.769578, 0.731927, 0.149317, 1)
+albedo_color = Color(0, 0, 0, 1)
 albedo_texture = SubResource("GradientTexture2D_2n21o")
