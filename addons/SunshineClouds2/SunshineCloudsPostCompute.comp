@@ -337,13 +337,14 @@ void main() {
 
 
 		// results in clouds in between the player and solid objects being softer, but has artifacts around objects with clouds behind them.
-		if (initialdistanceSample > linear_depth){
+		if (initialdistanceSample > linear_depth + maxstep){
 			lerp = 1.0;
+			
 		}
-		else if (traveledDistance > linear_depth){
-			float firsttravelblend = mix(1.0 - clamp((traveledDistance - initialdistanceSample) / minstep, 0.0, 1.0), 1.0, clamp(initialdistanceSample / maxstep, 0.0, 1.0));
-			lerp = (clamp((traveledDistance - linear_depth) / (traveledDistance - initialdistanceSample), 0.0, 1.0)) * firsttravelblend;
-		}
+		// else if (traveledDistance > linear_depth){
+		// 	float firsttravelblend = mix(1.0 - clamp((traveledDistance - initialdistanceSample) / minstep, 0.0, 1.0), 1.0, clamp(initialdistanceSample / maxstep, 0.0, 1.0));
+		// 	lerp = (clamp((traveledDistance - linear_depth) / (traveledDistance - initialdistanceSample), 0.0, 1.0)) * firsttravelblend;
+		// }
 		density *= smoothstep(minstep, minstep * 2.0, linear_depth);
 		density = mix(density, 0.0, lerp);
 		float groundLinearFade = mix(smoothstep(maxTheoreticalStep, maxTheoreticalStep, linear_depth), 1.0, genericData.data.fogEffectGround);

@@ -53,7 +53,12 @@ class_name SunshineCloudsGD
 
 @export_subgroup("Noise Textures")
 @export var dither_noise : Texture3D
-@export var height_gradient : Texture2D
+@export var height_gradient : Texture2D:
+		get: return height_gradient
+		set(value):
+			height_gradient = value
+			texture_updated()
+	
 @export var extra_large_noise_patterns : Texture2D
 @export var large_scale_noise : Texture3D
 @export var medium_scale_noise : Texture3D
@@ -140,7 +145,8 @@ var blit_screen_images : Array[RID] = []
 
 var buffers : RenderSceneBuffersRD
 
-
+var core_uniforms_array : Array[Array] = []
+var view_count : int = 0
 var uniform_sets : Array[RID] = []
 var general_data : PackedByteArray
 
@@ -397,6 +403,50 @@ func initialize_compute():
 
 	last_msaa_mode = msaa_mode
 
+func texture_updated():
+	if rd == null || !enabled:
+		return
+	
+	for view in range(view_count):
+		var uniform_array: Array[RDUniform] = core_uniforms_array[view]
+		var extra_noise_uniform = uniform_array[7]
+		extra_noise_uniform.clear_ids()
+		extra_noise_uniform.add_id(linear_sampler)
+		extra_noise_uniform.add_id(maskDrawnRid if extra_large_used_as_mask && maskDrawnRid.is_valid() else RenderingServer.texture_get_rd_texture(extra_large_noise_patterns.get_rid()))
+		
+		
+		var noise_uniform = uniform_array[8]
+		noise_uniform.clear_ids()
+		noise_uniform.add_id(linear_sampler)
+		noise_uniform.add_id(RenderingServer.texture_get_rd_texture(large_scale_noise.get_rid()))
+		
+		var medium_noise_uniform = uniform_array[9]
+		medium_noise_uniform.clear_ids()
+		medium_noise_uniform.add_id(linear_sampler)
+		medium_noise_uniform.add_id(RenderingServer.texture_get_rd_texture(medium_scale_noise.get_rid()))
+		
+		var small_noise_uniform = uniform_array[10]
+		small_noise_uniform.clear_ids()
+		small_noise_uniform.add_id(linear_sampler)
+		small_noise_uniform.add_id(RenderingServer.texture_get_rd_texture(small_scale_noise.get_rid()))
+		
+		var curl_noise_uniform = uniform_array[11]
+		curl_noise_uniform.clear_ids()
+		curl_noise_uniform.add_id(linear_sampler)
+		curl_noise_uniform.add_id(RenderingServer.texture_get_rd_texture(curl_noise.get_rid()))
+		
+		var dither_noise_uniform = uniform_array[12]
+		dither_noise_uniform.clear_ids()
+		dither_noise_uniform.add_id(nearest_sampler)
+		dither_noise_uniform.add_id(RenderingServer.texture_get_rd_texture(dither_noise.get_rid()))
+		
+		var height_gradient_uniform = uniform_array[13]
+		height_gradient_uniform.clear_ids()
+		height_gradient_uniform.add_id(linear_sampler_no_repeat)
+		height_gradient_uniform.add_id(RenderingServer.texture_get_rd_texture(height_gradient.get_rid()))
+		
+		uniform_sets[view * 4 + 1] = rd.uniform_set_create(uniform_array, shader, 0)
+
 func initialize_raster_pipelines(color_texture : RID, depth_texture : RID):
 	var rd := RenderingServer.get_rendering_device()
 	assert(rd != null)
@@ -456,9 +506,9 @@ func _render_callback(effect_callback_type, render_data):
 					#resscale = 8
 			
 			var new_size = size / resscale
-			var view_count = buffers.get_view_count()
+			view_count = buffers.get_view_count()
 			var rendersceneData : RenderSceneData = render_data.get_render_scene_data();
-			
+			core_uniforms_array.clear()
 			if size != last_size or uniform_sets == null or uniform_sets.size() != view_count * 4 or color_images.size() == 0 or color_images[0] != buffers.get_color_layer(0) or blit_screen_images.size() == 0 or msaa_mode != last_msaa_mode:
 				initialize_compute()
 				initialize_raster_pipelines(buffers.get_color_layer(0, is_msaa_on), buffers.get_depth_layer(0, is_msaa_on))
@@ -534,7 +584,8 @@ func _render_callback(effect_callback_type, render_data):
 					#endregion
 
 					#region Base Compute Shader
-					var uniforms_array : Array[RDUniform] = []
+					
+					var uniforms_array: Array[RDUniform] = []
 					var output_data_uniform = RDUniform.new()
 					output_data_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
 					output_data_uniform.binding = 0
@@ -656,7 +707,7 @@ func _render_callback(effect_callback_type, render_data):
 					camera_data_uniform.binding = 17
 					camera_data_uniform.add_id(cameraData)
 					uniforms_array.append(camera_data_uniform)
-					
+					core_uniforms_array.append(uniforms_array)
 					uniform_sets.append(rd.uniform_set_create(uniforms_array, shader, 0))
 					#endregion
 

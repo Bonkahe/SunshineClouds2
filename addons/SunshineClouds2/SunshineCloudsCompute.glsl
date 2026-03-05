@@ -160,7 +160,7 @@ float sampleScene(
 	
 
 	float edgeFade = min(smoothstep(0.0, 0.1, clampedWorldHeight), smoothstep(1.0, 0.9, clampedWorldHeight));
-	float extraLargeShape = extralargeNoiseValue * gradientSample.b;
+	// float extraLargeShape = extralargeNoiseValue * gradientSample.b;
 
 	float smallShape = texture(noise_small, (worldPosition - smallNoisePos) / smallnoisescale).r;
 
@@ -185,7 +185,7 @@ float sampleScene(
 		}
 	}
 
-	float largeShape = texture(large_noise, (worldPosition - largeNoisePos) / largenoisescale).r * extraLargeShape;
+	float largeShape = texture(large_noise, (worldPosition - largeNoisePos) / largenoisescale).r * 1.0;
 	largeShape = smoothstep(coverage , coverage - 0.1, 1.0 - (largeShape * gradientSample.r)) + max(effectorAdditive, 0.0);
 	vec4 mediumShapes = texture(noise_medium, (worldPosition - mediumNoisePos) / mediumnoisescale).rgba;
 	float mediumshape = 1.0 - mediumShapes.b;
@@ -214,7 +214,7 @@ float sampleSceneCoarse(
 	vec4 gradientSample = texture(heightmask, vec2(clampedWorldHeight, 0.5)).rgba;
 
 	float edgeFade = min(smoothstep(0.0, 0.1, clampedWorldHeight), smoothstep(1.0, 0.9, clampedWorldHeight));
-	float extraLargeShape = extralargeNoiseValue * gradientSample.b;
+	// float extraLargeShape = extralargeNoiseValue * gradientSample.b;
 
 	float effectorAdditive = 0.0;
 	vec2 WindDirection = genericData.data.WindDirection;
@@ -224,7 +224,7 @@ float sampleSceneCoarse(
 		effectorAdditive = sampleEffectorAdditive(worldPosition) * edgeFade;
 	}
 
-	float largeShape = texture(large_noise, (worldPosition - largeNoisePos) / largenoisescale).r * extraLargeShape;
+	float largeShape = texture(large_noise, (worldPosition - largeNoisePos) / largenoisescale).r * 1.0;
 	largeShape = smoothstep(coverage , coverage - 0.1, 1.0 - (largeShape * gradientSample.r)) + max(effectorAdditive, 0.0);
 
 	float shape = largeShape + effectorAdditive;
@@ -274,9 +274,9 @@ float sampleLighting(
 			heightGradient = remap(curPos.y, cloudfloor, cloudceiling, 0.0, 1.0);
 			
 			heightGradient = clamp(smoothstep(sunUpValue - 0.1, sunUpValue, heightGradient), 0.0, 1.0);
-			float extraLargeShape = texture(extra_large_noise, (curPos.xz - extralargeNoisePos.xz) / extralargenoisescale).a;
+			// float extraLargeShape = texture(extra_large_noise, (curPos.xz - extralargeNoisePos.xz) / extralargenoisescale).a;
 
-			thisDensity = sampleScene(largeNoisePos, mediumNoisePos, smallNoisePos, curPos, cloudceiling, cloudfloor, extraLargeShape, largenoisescale, mediumnoisescale, smallnoisescale, coverage, smallscalePower, curlPower, lod, true) * densityMultiplier * eachStepWeight;
+			thisDensity = sampleScene(largeNoisePos, mediumNoisePos, smallNoisePos, curPos, cloudceiling, cloudfloor, 1.0, largenoisescale, mediumnoisescale, smallnoisescale, coverage, smallscalePower, curlPower, lod, true) * densityMultiplier * eachStepWeight;
 			// if (thisDensity <= 0.0){
 			// 	break;
 			// }
@@ -314,8 +314,8 @@ float sampleAO(
 	samplePos.x += lightingSampleRange * (rand(samplePos.zy) * 2.0 - 1.0);
 	samplePos.z += lightingSampleRange * (rand(samplePos.yx) * 2.0 - 1.0);
 
-	float extraLargeShape = texture(extra_large_noise, (samplePos.xz - extralargeNoisePos.xz) / extralargenoisescale).a;
-	return sampleScene(largeNoisePos, mediumNoisePos, smallNoisePos, samplePos, cloudceiling, cloudfloor, extraLargeShape, largenoisescale, mediumnoisescale, smallnoisescale, coverage, smallscalePower, curlPower, lod, true);
+	// float extraLargeShape = texture(extra_large_noise, (samplePos.xz - extralargeNoisePos.xz) / extralargenoisescale).a;
+	return sampleScene(largeNoisePos, mediumNoisePos, smallNoisePos, samplePos, cloudceiling, cloudfloor, 1.0, largenoisescale, mediumnoisescale, smallnoisescale, coverage, smallscalePower, curlPower, lod, true);
 }
 
 void sampleAtmospherics(
