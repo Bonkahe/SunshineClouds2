@@ -552,7 +552,7 @@ void main() {
 	//int frameIndex = int(genericData.data.filterIndex);
 	
 	//REUSABLE VARIABLES
-	float override = 0.0;
+	bool override = false;
 	bool densityBreak = false;
 	bool depthBreak = false;
 
@@ -862,7 +862,7 @@ void main() {
 		
 	}
 
-	density *= clamp(smoothstep(maxstep * stepCount, minstep * stepCount, traveledDistance), 0.0, 1.0);
+		density *= clamp(smoothstep(maxstep * stepCount, minstep * stepCount, traveledDistance), 0.0, 1.0);
 
 	ambient = clamp(ambient / lightingSamples, 0.0, 1.0);
 	paintedColor = clamp(paintedColor / lightingSamples, 0.0, 1.0);
@@ -902,7 +902,7 @@ void main() {
 
 	//accumulation preperation:
 	float finalDensityDistance = min(traveledDistance, highestDensityDistance);
-	vec3 worldFinalPos = rayOrigin + raydirection * finalDensityDistance;
+	vec3 worldFinalPos = rayOrigin + raydirection * traveledDistance;
 	vec3 delta = rayOrigin - scene_data_block.prev_data.main_cam_inv_view_matrix[3].xyz;
 	worldFinalPos += delta;
 	
@@ -914,10 +914,9 @@ void main() {
 		vec4 reprojectedClipPos = scene_data_block.prev_data.view_matrix * vec4(worldFinalPos, 1.0);
 		
 		reprojectedClipPos.z -= 0.01;
-		override = max(reprojectedClipPos.z, override);
-		// if (reprojectedClipPos.z > 0.0){
-		// 	override = true;
-		// }
+		if (reprojectedClipPos.z > 0.0){
+			override = true;
+		}
 		
 		reprojectedScreenPos = scene_data_block.prev_data.projection_matrix * reprojectedClipPos;
 	#else
@@ -931,10 +930,9 @@ void main() {
 		vec4 reprojectedClipPos = view_matrix * vec4(worldFinalPos, 1.0);
 		
 		reprojectedClipPos.z -= 0.01;
-		override = max(reprojectedClipPos.z, override);
-		// if (reprojectedClipPos.z > 0.0){
-		// 	override = true;
-		// }
+		if (reprojectedClipPos.z > 0.0){
+			override = true;
+		}
 		
 		reprojectedScreenPos = scene_data_block.prev_data.projection_matrix * reprojectedClipPos;
 	#endif
@@ -944,10 +942,8 @@ void main() {
 
 	// Convert normalized device coordinates to screen space
 	vec2 screen_position = ndc * 0.5 + 0.5;
-	
 	//screen_position = clamp(screen_position, vec2(0.0), vec2(1.0));
 	screen_position = screen_position - depthUV;
-	float delta_break = length(screen_position * vec2(size));
 
 	ivec2 adjustedUV = ivec2(int(screen_position.x * size.x), int(screen_position.y * size.y));
 	//float change = length(vec2(adjustedUV));
@@ -972,10 +968,10 @@ void main() {
 		float currentDepthBreak = float(depthBreak);
 
 		// bool lastDepthBreak = currentDataAccumilation.a < 0.0;
-		float if_break = max(override, length(clampedUV - adjustedUV));
+		float if_break = max(float(override), abs(length(clampedUV - adjustedUV)));
 		// if_break = max(if_break, lightColor.a - 0.8 - currentColorAccumilation.a); //Lets super high accumilation still look passable, but at the cost of less soft edges.
-		//length(adjustedUV - uv) > 1.0 && 
-		if (if_break > 0.0 || (delta_break > 0.5 && currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed * 0.5)){
+
+		if (if_break > 0.0 || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed * 0.5)){
 			currentColorAccumilation = lightColor;
 			//debugCollisions = true;
 			currentDataAccumilation.r = initialdistanceSample;
@@ -991,7 +987,7 @@ void main() {
 		}
 
 		currentDataAccumilation.a = currentDepthBreak;
-		
+
 		imageStore(accum_1B_image, uv, currentColorAccumilation);
 		imageStore(accum_2B_image, uv, currentDataAccumilation);
 	}
@@ -1002,11 +998,10 @@ void main() {
 		float currentDepthBreak = float(depthBreak);
 		
 		// bool lastDepthBreak = currentDataAccumilation.a < 0.0;
-		float if_break = max(override, length(clampedUV - adjustedUV));
+		float if_break = max(float(override), abs(length(clampedUV - adjustedUV)));
 		// if_break = max(if_break, lightColor.a - 0.8 - currentColorAccumilation.a); //Lets super high accumilation still look passable, but at the cost of less soft edges.
-		//length(adjustedUV - uv) > 1.0 && 
-		//
-		if (if_break > 0.0 || (delta_break > 0.5 && currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed * 0.5)){
+
+		if (if_break > 0.0 || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed * 0.5)){
 			currentColorAccumilation = lightColor;
 			//debugCollisions = true;
 			currentDataAccumilation.r = initialdistanceSample;
@@ -1042,13 +1037,8 @@ void main() {
 
 	// currentDataAccumilation.g += maxTheoreticalStep * float(depthBreak);
 
-	// float delta_value = max(length((vec2(adjustedUV) - vec2(uv))), length(delta));
-	// float delta_value = length(screen_position * vec2(size));
-	// if (debugCollisions){
-	// 	currentColorAccumilation.r = 1.0;
-	// }
-	
 	currentDataAccumilation.r = min(currentDataAccumilation.r, initialdistanceSample);
+	
 	imageStore(output_color_image, uv, currentColorAccumilation);
 	imageStore(output_data_image, uv, currentDataAccumilation);
 	//}
