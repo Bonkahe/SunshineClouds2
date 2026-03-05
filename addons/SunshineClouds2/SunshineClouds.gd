@@ -575,7 +575,7 @@ func _render_callback(effect_callback_type, render_data):
 					depth_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
 					depth_uniform.binding = 6
 					depth_uniform.add_id(nearest_sampler)
-					depth_uniform.add_id(resized_depth)
+					depth_uniform.add_id(depth_image)
 					uniforms_array.append(depth_uniform)
 					
 					var extra_noise_uniform = RDUniform.new()
@@ -766,17 +766,17 @@ func _render_callback(effect_callback_type, render_data):
 			if (!positionQuerying && !positionResetting && positionQueries.size() > 0):
 				encode_sample_points()
 			
-			var prepass_x_groups = ((size.x - 1) / 32) + 1
-			var prepass_y_groups = ((size.y - 1) / 32) + 1
-			var x_groups = ((size.x - 1) / 32 / resscale) + 1
-			var y_groups = ((size.y - 1) / 32 / resscale) + 1
+			var prepass_x_groups = ((size.x - 1) / 8) + 1
+			var prepass_y_groups = ((size.y - 1) / 8) + 1
+			var x_groups = ((size.x - 1) / 8 / resscale) + 1
+			var y_groups = ((size.y - 1) / 8 / resscale) + 1
 			
 			for view in view_count:
-				var prepass_list = rd.compute_list_begin()
-				rd.compute_list_bind_compute_pipeline(prepass_list, prepass_pipeline)
-				rd.compute_list_bind_uniform_set(prepass_list, uniform_sets[view * 4], 0)
-				rd.compute_list_dispatch(prepass_list, x_groups, y_groups, 1)
-				rd.compute_list_end()
+				#var prepass_list = rd.compute_list_begin()
+				#rd.compute_list_bind_compute_pipeline(prepass_list, prepass_pipeline)
+				#rd.compute_list_bind_uniform_set(prepass_list, uniform_sets[view * 4], 0)
+				#rd.compute_list_dispatch(prepass_list, x_groups, y_groups, 1)
+				#rd.compute_list_end()
 
 				var compute_list = rd.compute_list_begin()
 				rd.compute_list_bind_compute_pipeline(compute_list, pipeline)

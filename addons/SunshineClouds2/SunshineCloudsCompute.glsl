@@ -6,7 +6,7 @@
 #include "./CloudsInc.comp"
 
 // Invocations in the (x, y, z) dimension
-layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(rgba16f, binding = 0) uniform image2D output_data_image;
 layout(rgba16f, binding = 1) uniform image2D output_color_image;
@@ -422,8 +422,40 @@ void main() {
 		return;
 	}
 	
-	vec2 depthUV = (uv + 0.5) / vec2(size);
-	float depth = texture(depth_image, depthUV).r;
+	// vec2 depthUV = (uv + 0.5) / vec2(size);
+
+
+	int resolutionScale = int(genericData.data.resolutionscale);
+    ivec2 sizescaled = size * resolutionScale;
+
+    int adjustedScale = resolutionScale * 2;
+    int halfScale = int(floor(float(adjustedScale) * 0.5));
+    ivec2 starting_uv = ivec2(floor(vec2(uv) * float(resolutionScale)));
+    ivec2 current_uv = starting_uv;
+
+    vec2 depthUV = vec2(0.0);
+
+    float furthestDepth = 10000000000000000.0;
+    for (int x = 0; x < adjustedScale; x++) {
+        for(int y = 0; y < adjustedScale; y++) {
+            current_uv = starting_uv + ivec2(x, y);
+            if (current_uv.x >= sizescaled.x || current_uv.y >= sizescaled.y) {
+                continue;
+            }
+
+            depthUV = vec2((float(current_uv.x) + 0.5) / float(sizescaled.x), (float(current_uv.y) + 0.5) / float(sizescaled.y));
+
+            furthestDepth = min(texture(depth_image, depthUV).r, furthestDepth);
+        }
+    }
+
+	float depth = furthestDepth;
+	depthUV = (uv + 0.5) / vec2(size);
+	// float depth = texture(depth_image, depthUV).r;
+
+
+
+
 
 	vec4 view = scene_data_block.data.inv_projection_matrix * vec4(depthUV*2.0-1.0,depth,1.0);
 	view.xyz /= view.w;
@@ -520,7 +552,7 @@ void main() {
 	//int frameIndex = int(genericData.data.filterIndex);
 	
 	//REUSABLE VARIABLES
-	bool override = false;
+	float override = 0.0;
 	bool densityBreak = false;
 	bool depthBreak = false;
 
@@ -870,7 +902,7 @@ void main() {
 
 	//accumulation preperation:
 	float finalDensityDistance = min(traveledDistance, highestDensityDistance);
-	vec3 worldFinalPos = rayOrigin + raydirection * traveledDistance;
+	vec3 worldFinalPos = rayOrigin + raydirection * finalDensityDistance;
 	vec3 delta = rayOrigin - scene_data_block.prev_data.main_cam_inv_view_matrix[3].xyz;
 	worldFinalPos += delta;
 	
@@ -882,9 +914,10 @@ void main() {
 		vec4 reprojectedClipPos = scene_data_block.prev_data.view_matrix * vec4(worldFinalPos, 1.0);
 		
 		reprojectedClipPos.z -= 0.01;
-		if (reprojectedClipPos.z > 0.0){
-			override = true;
-		}
+		override = max(reprojectedClipPos.z, override);
+		// if (reprojectedClipPos.z > 0.0){
+		// 	override = true;
+		// }
 		
 		reprojectedScreenPos = scene_data_block.prev_data.projection_matrix * reprojectedClipPos;
 	#else
@@ -898,9 +931,10 @@ void main() {
 		vec4 reprojectedClipPos = view_matrix * vec4(worldFinalPos, 1.0);
 		
 		reprojectedClipPos.z -= 0.01;
-		if (reprojectedClipPos.z > 0.0){
-			override = true;
-		}
+		override = max(reprojectedClipPos.z, override);
+		// if (reprojectedClipPos.z > 0.0){
+		// 	override = true;
+		// }
 		
 		reprojectedScreenPos = scene_data_block.prev_data.projection_matrix * reprojectedClipPos;
 	#endif
@@ -910,8 +944,10 @@ void main() {
 
 	// Convert normalized device coordinates to screen space
 	vec2 screen_position = ndc * 0.5 + 0.5;
+	
 	//screen_position = clamp(screen_position, vec2(0.0), vec2(1.0));
 	screen_position = screen_position - depthUV;
+	float delta_break = length(screen_position * vec2(size));
 
 	ivec2 adjustedUV = ivec2(int(screen_position.x * size.x), int(screen_position.y * size.y));
 	//float change = length(vec2(adjustedUV));
@@ -936,10 +972,10 @@ void main() {
 		float currentDepthBreak = float(depthBreak);
 
 		// bool lastDepthBreak = currentDataAccumilation.a < 0.0;
-		float if_break = max(float(override), abs(length(clampedUV - adjustedUV)));
+		float if_break = max(override, length(clampedUV - adjustedUV));
 		// if_break = max(if_break, lightColor.a - 0.8 - currentColorAccumilation.a); //Lets super high accumilation still look passable, but at the cost of less soft edges.
-
-		if (if_break > 0.0 || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed * 0.5)){
+		//length(adjustedUV - uv) > 1.0 && 
+		if (if_break > 0.0 || (delta_break > 0.5 && currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed * 0.5)){
 			currentColorAccumilation = lightColor;
 			//debugCollisions = true;
 			currentDataAccumilation.r = initialdistanceSample;
@@ -955,7 +991,7 @@ void main() {
 		}
 
 		currentDataAccumilation.a = currentDepthBreak;
-
+		
 		imageStore(accum_1B_image, uv, currentColorAccumilation);
 		imageStore(accum_2B_image, uv, currentDataAccumilation);
 	}
@@ -966,10 +1002,11 @@ void main() {
 		float currentDepthBreak = float(depthBreak);
 		
 		// bool lastDepthBreak = currentDataAccumilation.a < 0.0;
-		float if_break = max(float(override), abs(length(clampedUV - adjustedUV)));
+		float if_break = max(override, length(clampedUV - adjustedUV));
 		// if_break = max(if_break, lightColor.a - 0.8 - currentColorAccumilation.a); //Lets super high accumilation still look passable, but at the cost of less soft edges.
-
-		if (if_break > 0.0 || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed * 0.5)){
+		//length(adjustedUV - uv) > 1.0 && 
+		//
+		if (if_break > 0.0 || (delta_break > 0.5 && currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed * 0.5)){
 			currentColorAccumilation = lightColor;
 			//debugCollisions = true;
 			currentDataAccumilation.r = initialdistanceSample;
@@ -1005,8 +1042,13 @@ void main() {
 
 	// currentDataAccumilation.g += maxTheoreticalStep * float(depthBreak);
 
-	currentDataAccumilation.r = min(currentDataAccumilation.r, initialdistanceSample);
+	// float delta_value = max(length((vec2(adjustedUV) - vec2(uv))), length(delta));
+	// float delta_value = length(screen_position * vec2(size));
+	// if (debugCollisions){
+	// 	currentColorAccumilation.r = 1.0;
+	// }
 	
+	currentDataAccumilation.r = min(currentDataAccumilation.r, initialdistanceSample);
 	imageStore(output_color_image, uv, currentColorAccumilation);
 	imageStore(output_data_image, uv, currentDataAccumilation);
 	//}
