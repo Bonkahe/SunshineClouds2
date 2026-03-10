@@ -2,7 +2,6 @@
 
 [ext_resource type="RDShaderFile" uid="uid://dx1y5cye1m1hu" path="res://addons/SunshineClouds2/SunshineCloudsCompute.glsl" id="1_0jtrb"]
 [ext_resource type="CompressedTexture3D" uid="uid://dei12lsgrjpyu" path="res://addons/SunshineClouds2/NoiseTextures/curl_noise_varied.tga" id="2_uu0np"]
-[ext_resource type="CompressedTexture3D" uid="uid://b3uyfsp4in821" path="res://addons/SunshineClouds2/NoiseTextures/bluenoise_Dither.png" id="3_6wvml"]
 [ext_resource type="Script" uid="uid://bxlm4e5qfb7uu" path="res://addons/SunshineClouds2/SunshineCloudEffector.gd" id="3_afwv5"]
 [ext_resource type="Script" uid="uid://djusduuxf0voj" path="res://addons/SunshineClouds2/SunshineCloudsDriver.gd" id="3_unbdf"]
 [ext_resource type="Texture2D" uid="uid://de2nsujnhdlg0" path="res://addons/SunshineClouds2/NoiseTextures/ExtraLargeScaleNoise.tres" id="4_g0kkk"]
@@ -31,6 +30,17 @@ fog_density = 1.0
 fog_depth_begin = 2490.6
 fog_depth_end = 40000.0
 
+[sub_resource type="Gradient" id="Gradient_oshd0"]
+interpolation_mode = 2
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_g0kkk"]
+frequency = 0.3279
+
+[sub_resource type="NoiseTexture3D" id="NoiseTexture3D_0jtrb"]
+noise = SubResource("FastNoiseLite_g0kkk")
+color_ramp = SubResource("Gradient_oshd0")
+seamless = true
+
 [sub_resource type="CompositorEffect" id="CompositorEffect_0jtrb"]
 resource_local_to_scene = false
 resource_name = ""
@@ -41,23 +51,24 @@ access_resolved_depth = true
 needs_motion_vectors = true
 needs_normal_roughness = false
 script = ExtResource("10_re0u6")
-clouds_coverage = 0.587
+clouds_coverage = 0.763
 clouds_density = 1.5550000000000002
 atmospheric_density = 0.754
 lighting_density = 0.162
 clouds_anisotropy = 0.03
 clouds_powder = 0.945
+accumulation_decay = 0.8
 curl_noise_strength = 2546.875
 wind_swept_strength = 500.0
 resolution_scale = 0
-dither_noise = ExtResource("3_6wvml")
+dither_noise = SubResource("NoiseTexture3D_0jtrb")
 height_gradient = ExtResource("5_tq3dl")
 extra_large_noise_patterns = ExtResource("4_g0kkk")
 large_scale_noise = ExtResource("6_mnubm")
 medium_scale_noise = ExtResource("7_f1cuh")
 small_scale_noise = ExtResource("11_6b1a5")
 curl_noise = ExtResource("2_uu0np")
-min_step_distance = 100.0
+min_step_distance = 50.0
 max_step_distance = 600.0
 pre_pass_compute_shader = ExtResource("9_penpr")
 compute_shader = ExtResource("1_0jtrb")

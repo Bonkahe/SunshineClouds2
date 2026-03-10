@@ -487,7 +487,8 @@ void main() {
 	// float ditherScale = 40.037;
 	// vec3 ditherUV = vec3(depthUV.x * ditherScale , depthUV.y * ditherScale , genericData.data.time);
 	// float smallNoise = texture(dither_small, ditherUV).r;
-	// vec3 ign_noise_uv = vec3(float(uv.x), fract(genericData.data.time) * 2.0 - 1.0, float(uv.y));
+	// float pixel_dither = get_dither_value(uv);
+	// vec3 ign_noise_uv = vec3(uv.x, fract(genericData.data.time), uv.y) * 2.0 - 1.0;
 	// float ign_noise = fract(52.9829189 * fract(dot(ign_noise_uv, vec3(0.006711056, 0.00583715, 1.61803398875))));
 	// float ditherValue = ign_noise;
 
@@ -495,7 +496,8 @@ void main() {
 	vec3 ditherUV = vec3(depthUV.x * ditherScale , depthUV.y * ditherScale , genericData.data.time);
 	float smallNoise = texture(dither_small, ditherUV).r;
 
-	float ditherValue = smallNoise;
+	float ditherValue = smallNoise * 2.0;
+	//float ditherValue = rand(vec2(ditherUV.x * ditherUV.z * ditherScale, ditherUV.y * ditherUV.z * ditherScale));
 
 	//ATMOSPHERICS
 	vec3 ambientfogdistancecolor = genericData.data.ambientfogdistancecolor.rgb;
@@ -971,7 +973,7 @@ void main() {
 		float if_break = max(float(override), abs(length(clampedUV - adjustedUV)));
 		// if_break = max(if_break, lightColor.a - 0.8 - currentColorAccumilation.a); //Lets super high accumilation still look passable, but at the cost of less soft edges.
 
-		if (if_break > 0.0 || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed * 0.5)){
+		if (if_break > 0.0 || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed)){
 			currentColorAccumilation = lightColor;
 			//debugCollisions = true;
 			currentDataAccumilation.r = initialdistanceSample;
@@ -1001,7 +1003,7 @@ void main() {
 		float if_break = max(float(override), abs(length(clampedUV - adjustedUV)));
 		// if_break = max(if_break, lightColor.a - 0.8 - currentColorAccumilation.a); //Lets super high accumilation still look passable, but at the cost of less soft edges.
 
-		if (if_break > 0.0 || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed * 0.5)){
+		if (if_break > 0.0 || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed)){
 			currentColorAccumilation = lightColor;
 			//debugCollisions = true;
 			currentDataAccumilation.r = initialdistanceSample;
@@ -1031,12 +1033,13 @@ void main() {
 	// }
 	// // currentDataAccumilation.g = mix(currentDataAccumilation.g, maxTheoreticalStep, clamp(finalDensityDistance - linear_depth, 0.0, 1.0) * depthFade);
 	
-	// if (depthBreak){
-	// 	currentColorAccumilation.rgb = vec3(1.0, 0.0, 0.0);
-	// }
+
 
 	// currentDataAccumilation.g += maxTheoreticalStep * float(depthBreak);
 
+	if (depthBreak){
+		currentDataAccumilation.g = 1000000.0;
+	}
 	currentDataAccumilation.r = min(currentDataAccumilation.r, initialdistanceSample);
 	
 	imageStore(output_color_image, uv, currentColorAccumilation);
