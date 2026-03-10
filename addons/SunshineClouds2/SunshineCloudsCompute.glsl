@@ -236,9 +236,9 @@ float sampleScene(
 		if (!ambientsample && curlHeightSample > 0.0 && min(curlPower, lod) > 0.5){
 			
 			float curlLod = remap(lod, 0.5, 1.0, 0.0, 1.0);
-			worldPosition += (((texture(curl_noise, (worldPosition - mediumNoisePos) / mediumnoisescale).xyz * 2.0) - 1.0) * vec3(1.0, 0.2, 1.0) + vec3(WindDirection.x, 0.0, WindDirection.y) * 0.9) * curlPower * curlHeightSample * curlLod;
-			worldPosition += (((texture(curl_noise, (worldPosition - mediumNoisePos) / mediumnoisescale).xyz * 2.0) - 1.0) * vec3(1.0, 0.2, 1.0) + vec3(WindDirection.x, 0.0, WindDirection.y) * 0.9) * curlPower * curlHeightSample * curlLod;
-			worldPosition += (((texture(curl_noise, (worldPosition - mediumNoisePos) / mediumnoisescale).xyz * 2.0) - 1.0) * vec3(1.0, 0.2, 1.0) + vec3(WindDirection.x, 0.0, WindDirection.y) * 0.9) * curlPower * curlHeightSample * curlLod;
+			worldPosition += ((texture(curl_noise, (worldPosition - mediumNoisePos) / mediumnoisescale).xyz * 2.0 - 1.0) * vec3(1.0, 0.2, 1.0)) * curlPower * curlHeightSample * curlLod;
+			worldPosition += ((texture(curl_noise, (worldPosition - mediumNoisePos) / mediumnoisescale).xyz * 2.0 - 1.0) * vec3(1.0, 0.2, 1.0)) * curlPower * curlHeightSample * curlLod;
+			worldPosition += ((texture(curl_noise, (worldPosition - mediumNoisePos) / mediumnoisescale).xyz * 2.0 - 1.0) * vec3(1.0, 0.2, 1.0)) * curlPower * curlHeightSample * curlLod;
 			
 			clampedWorldHeight = remap(worldPosition.y, cloudfloor, cloudceiling, 0.0, 1.0);
 			gradientSample = texture(heightmask, vec2(clampedWorldHeight, 0.5)).rgba;
@@ -970,7 +970,7 @@ void main() {
 	// 	distancetest = traveledDistance;
 	// }
 
-	vec3 worldFinalPos = rayOrigin + raydirection * traveledDistance;
+	vec3 worldFinalPos = rayOrigin + raydirection * highestDensityDistance;
 
 	vec3 last_origin = vec3(scene_data_block.prev_data.inv_view_matrix[0].w, scene_data_block.prev_data.inv_view_matrix[1].w, scene_data_block.prev_data.inv_view_matrix[2].w);
 	last_origin += raydirection * traveledDistance;
@@ -1040,8 +1040,8 @@ void main() {
 		// bool lastDepthBreak = currentDataAccumilation.a < 0.0;
 		float if_break = max(float(override), abs(length(clampedUV - adjustedUV)));
 		// if_break = max(if_break, lightColor.a - 0.8 - currentColorAccumilation.a); //Lets super high accumilation still look passable, but at the cost of less soft edges.
-
-		if (if_break > 0.0 || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed * 0.5)){
+		// || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed * 0.5)
+		if (if_break > 0.0){
 			currentColorAccumilation = lightColor;
 			//debugCollisions = true;
 			currentDataAccumilation.r = initialdistanceSample;
@@ -1071,7 +1071,7 @@ void main() {
 		float if_break = max(float(override), abs(length(clampedUV - adjustedUV)));
 		// if_break = max(if_break, lightColor.a - 0.8 - currentColorAccumilation.a); //Lets super high accumilation still look passable, but at the cost of less soft edges.
 
-		if (if_break > 0.0 || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed * 0.5)){
+		if (if_break > 0.0){
 			currentColorAccumilation = lightColor;
 			//debugCollisions = true;
 			currentDataAccumilation.r = initialdistanceSample;
