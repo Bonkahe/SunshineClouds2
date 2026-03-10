@@ -297,7 +297,7 @@ void main() {
 
 	float initialdistanceSample = currentColorData.r;
 	float traveledDistance = currentColorData.g;
-	float finalDensityDistance = currentColorData.b;
+	float highestDensityDistance = currentColorData.b;
 
 	// Convert screen coordinates to normalized device coordinates
 	vec2 clipUV = vec2(depthUV.x, depthUV.y);
@@ -337,8 +337,9 @@ void main() {
 
 
 		// results in clouds in between the player and solid objects being softer, but has artifacts around objects with clouds behind them.
-		if (initialdistanceSample > linear_depth){
-			lerp = 1.0;
+		if (highestDensityDistance > linear_depth){
+			// lerp = 1.0;
+			lerp = mix(0.0, 1.0, clamp((initialdistanceSample - linear_depth) / maxstep, 0.0, 1.0));
 		}
 		// else if (traveledDistance > linear_depth){
 		// 	float firsttravelblend = mix(1.0 - clamp((traveledDistance - initialdistanceSample) / minstep, 0.0, 1.0), 1.0, clamp(initialdistanceSample / maxstep, 0.0, 1.0));

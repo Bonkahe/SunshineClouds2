@@ -8,7 +8,7 @@
 [ext_resource type="Texture2D" uid="uid://g02m2ewpwusq" path="res://addons/SunshineClouds2/NoiseTextures/HeightGradient.tres" id="5_tq3dl"]
 [ext_resource type="NoiseTexture3D" uid="uid://6ed3lvlpbqmg" path="res://addons/SunshineClouds2/NoiseTextures/LargeScaleNoise.tres" id="6_mnubm"]
 [ext_resource type="NoiseTexture3D" uid="uid://dxyewgt7o40m0" path="res://addons/SunshineClouds2/NoiseTextures/MediumScaleNoise.tres" id="7_f1cuh"]
-[ext_resource type="RDShaderFile" uid="uid://cpef10h5lggny" path="res://addons/SunshineClouds2/SunshineCloudsPostCompute.msaa.glsl" id="7_oshd0"]
+[ext_resource type="RDShaderFile" uid="uid://cqhejbalsrvjp" path="res://addons/SunshineClouds2/SunshineCloudsPostCompute.glsl" id="7_oshd0"]
 [ext_resource type="RDShaderFile" uid="uid://crfpk8ta4qxsk" path="res://addons/SunshineClouds2/SunshineCloudsPreCompute.glsl" id="9_penpr"]
 [ext_resource type="Script" uid="uid://dnblgqynq1t7l" path="res://addons/SunshineClouds2/SunshineClouds.gd" id="10_re0u6"]
 [ext_resource type="NoiseTexture3D" uid="uid://bnck2kxeg5bkg" path="res://addons/SunshineClouds2/NoiseTextures/SmallScaleNoise.tres" id="11_6b1a5"]
@@ -172,6 +172,10 @@ tracked_directional_lights = [NodePath("../DirectionalLight3D")]
 tracked_directional_light_shadow_steps = Array[int]([32])
 tracked_point_lights = [NodePath("../OmniLight3D")]
 tracked_point_effectors = [NodePath("../SunshineCloudsEffector"), NodePath("../SunshineCloudsEffector2")]
+extra_large_structures_wind_speed = 0.0
+large_structures_wind_speed = 0.0
+medium_structures_wind_speed = 0.0
+small_structures_wind_speed = 0.0
 metadata/_custom_type_script = "uid://djusduuxf0voj"
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=983599202]

@@ -964,7 +964,7 @@ void main() {
 
 
 	//accumulation preperation:
-	float finalDensityDistance = min(traveledDistance, highestDensityDistance);
+	// float finalDensityDistance = min(traveledDistance, highestDensityDistance);
 	// float distancetest = mix(traveledDistance, highestDensityDistance, clamp(smoothstep(0.0, maxstep, traveledDistance - highestDensityDistance), 0.0, 1.0));
 	// if (density > 0.01){
 	// 	distancetest = traveledDistance;
@@ -973,7 +973,7 @@ void main() {
 	vec3 worldFinalPos = rayOrigin + raydirection * highestDensityDistance;
 
 	vec3 last_origin = vec3(scene_data_block.prev_data.inv_view_matrix[0].w, scene_data_block.prev_data.inv_view_matrix[1].w, scene_data_block.prev_data.inv_view_matrix[2].w);
-	last_origin += raydirection * traveledDistance;
+	last_origin += raydirection * highestDensityDistance;
 	vec3 delta = worldFinalPos - last_origin;
 	worldFinalPos += delta;
 	
@@ -1016,20 +1016,21 @@ void main() {
 	screen_position = screen_position - depthUV;
 
 	ivec2 adjustedUV = ivec2(int(screen_position.x * size.x), int(screen_position.y * size.y));
+	float travelspeed = max(length(delta), length(vec2(adjustedUV)));
 	//float change = length(vec2(adjustedUV));
 	adjustedUV += uv; //Size is the screen resolution.
 	
 	ivec2 clampedUV = clamp(adjustedUV, ivec2(0), size - ivec2(1)); //having two lets me check if clamping it changed the reprojected uv, if it did that means it was offscreen, so rebuild data.
 
 	//execute accumilation.
-	float accumdecay = mix(genericData.data.accumilation_decay, 0.0, clamp(length(delta) / genericData.data.time / 10.0, 0.0, 1.0));
+	float accumdecay = mix(genericData.data.accumilation_decay, 0.0, clamp(length(delta) / genericData.data.time / 5.0, 0.0, 1.0));
 	//float accumdecay = genericData.data.accumilation_decay;
 	//alternate back and forth to avoid stepping on pixels being written too.
 	float usingaccumA = genericData.data.isAccumulationA;
 	
 	//float finalDensityDistance = max(traveledDistance, highestDensityDistance);
 	//linear_depth = max(linear_depth, traveledDistance);
-	float travelspeed = length(delta);
+	
 	//bool debugCollisions = false;
 	if (usingaccumA > 0.0){
 		currentColorAccumilation = imageLoad(accum_1A_image, adjustedUV).rgba;
@@ -1041,19 +1042,19 @@ void main() {
 		float if_break = max(float(override), abs(length(clampedUV - adjustedUV)));
 		// if_break = max(if_break, lightColor.a - 0.8 - currentColorAccumilation.a); //Lets super high accumilation still look passable, but at the cost of less soft edges.
 		// || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed * 0.5)
-		if (if_break > 0.0){
+		if (if_break > 0.0 || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed)){
 			currentColorAccumilation = lightColor;
 			//debugCollisions = true;
 			currentDataAccumilation.r = initialdistanceSample;
 			currentDataAccumilation.g = traveledDistance;
-			currentDataAccumilation.b = finalDensityDistance;
+			currentDataAccumilation.b = highestDensityDistance;
 		}
 		else{
 			currentColorAccumilation = (currentColorAccumilation * accumdecay) + lightColor * (1.0 - accumdecay);
 
 			currentDataAccumilation.r = mix(currentDataAccumilation.r, initialdistanceSample, (1.0 - accumdecay));
 			currentDataAccumilation.g = mix(currentDataAccumilation.g, traveledDistance,  (1.0 - accumdecay));
-			currentDataAccumilation.b = mix(currentDataAccumilation.b, finalDensityDistance,  (1.0 - accumdecay));
+			currentDataAccumilation.b = mix(currentDataAccumilation.b, highestDensityDistance,  (1.0 - accumdecay));
 		}
 
 		currentDataAccumilation.a = currentDepthBreak;
@@ -1071,19 +1072,19 @@ void main() {
 		float if_break = max(float(override), abs(length(clampedUV - adjustedUV)));
 		// if_break = max(if_break, lightColor.a - 0.8 - currentColorAccumilation.a); //Lets super high accumilation still look passable, but at the cost of less soft edges.
 
-		if (if_break > 0.0){
+		if (if_break > 0.0 || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed)){
 			currentColorAccumilation = lightColor;
 			//debugCollisions = true;
 			currentDataAccumilation.r = initialdistanceSample;
 			currentDataAccumilation.g = traveledDistance;
-			currentDataAccumilation.b = finalDensityDistance;
+			currentDataAccumilation.b = highestDensityDistance;
 		}
 		else{
 			currentColorAccumilation = (currentColorAccumilation * accumdecay) + lightColor * (1.0 - accumdecay);
 
 			currentDataAccumilation.r = mix(currentDataAccumilation.r, initialdistanceSample, (1.0 - accumdecay));
 			currentDataAccumilation.g = mix(currentDataAccumilation.g, traveledDistance,  (1.0 - accumdecay));
-			currentDataAccumilation.b = mix(currentDataAccumilation.b, finalDensityDistance,  (1.0 - accumdecay));
+			currentDataAccumilation.b = mix(currentDataAccumilation.b, highestDensityDistance,  (1.0 - accumdecay));
 		}
 
 		currentDataAccumilation.a = currentDepthBreak;
