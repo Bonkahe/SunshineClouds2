@@ -6,9 +6,6 @@ seed = 2
 frequency = 0.0382
 
 [resource]
-width = 128
-height = 128
-depth = 128
 noise = SubResource("FastNoiseLite_o0m1u")
 seamless = true
 invert = true

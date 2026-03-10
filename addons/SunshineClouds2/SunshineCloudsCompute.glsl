@@ -23,25 +23,25 @@ layout(binding = 8) uniform sampler3D large_noise;
 layout(binding = 9) uniform sampler3D noise_medium;
 layout(binding = 10) uniform sampler3D noise_small;
 layout(binding = 11) uniform sampler3D curl_noise;
-layout(binding = 12) uniform sampler3D dither_small;
-layout(binding = 13) uniform sampler2D heightmask;
+// layout(binding = 12) uniform sampler3D dither_small;
+layout(binding = 12) uniform sampler2D heightmask;
 
-layout(binding = 14) uniform uniformBuffer {
+layout(binding = 13) uniform uniformBuffer {
 	GenericData data;
 } genericData;
 
-layout(binding = 15) uniform LightsBuffer {
+layout(binding = 14) uniform LightsBuffer {
 	DirectionalLight directionalLights[4];
 	PointLight pointLights[128];
 	PointEffector pointEffectors[64];
 };
 
-layout(binding = 16, std430) restrict buffer SamplePointsBuffer {
+layout(binding = 15, std430) restrict buffer SamplePointsBuffer {
 	vec4 SamplePoints[32];
 };
 
 
-layout(binding = 17, std140) uniform SceneDataBlock {
+layout(binding = 16, std140) uniform SceneDataBlock {
 	SceneData data;
 	SceneData prev_data;
 } scene_data_block;

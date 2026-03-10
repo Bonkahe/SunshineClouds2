@@ -1,6 +1,7 @@
 [gd_scene format=3 uid="uid://c1jy5gwigpsrl"]
 
 [ext_resource type="RDShaderFile" uid="uid://dx1y5cye1m1hu" path="res://addons/SunshineClouds2/SunshineCloudsCompute.glsl" id="1_0jtrb"]
+[ext_resource type="Script" uid="uid://bsyv8kj127g4b" path="res://launchtimer.gd" id="1_g0kkk"]
 [ext_resource type="CompressedTexture3D" uid="uid://dei12lsgrjpyu" path="res://addons/SunshineClouds2/NoiseTextures/curl_noise_varied.tga" id="2_uu0np"]
 [ext_resource type="Script" uid="uid://bxlm4e5qfb7uu" path="res://addons/SunshineClouds2/SunshineCloudEffector.gd" id="3_afwv5"]
 [ext_resource type="Script" uid="uid://djusduuxf0voj" path="res://addons/SunshineClouds2/SunshineCloudsDriver.gd" id="3_unbdf"]
@@ -30,19 +31,6 @@ fog_density = 1.0
 fog_depth_begin = 2490.6
 fog_depth_end = 40000.0
 
-[sub_resource type="Gradient" id="Gradient_oshd0"]
-interpolation_mode = 2
-
-[sub_resource type="FastNoiseLite" id="FastNoiseLite_g0kkk"]
-frequency = 0.0763
-
-[sub_resource type="NoiseTexture3D" id="NoiseTexture3D_0jtrb"]
-width = 128
-height = 128
-depth = 32
-noise = SubResource("FastNoiseLite_g0kkk")
-color_ramp = SubResource("Gradient_oshd0")
-
 [sub_resource type="CompositorEffect" id="CompositorEffect_0jtrb"]
 resource_local_to_scene = false
 resource_name = ""
@@ -58,14 +46,15 @@ clouds_anisotropy = 0.207
 clouds_powder = 1.0
 ambient_occlusion_color = Color(0.80722207, 0.3812313, 0.25500897, 1)
 accumulation_decay = 0.9
-small_noise_scale = 8935.85
+large_noise_scale = 60000.0
+medium_noise_scale = 12834.043
+small_noise_scale = 4538.138
 clouds_detail_power = 1.038
 curl_noise_strength = 3242.139
 wind_swept_range = 0.545
 wind_swept_strength = 2345.912
 max_lighting_steps = 12.0
 lod_bias = 2.0
-dither_noise = SubResource("NoiseTexture3D_0jtrb")
 height_gradient = ExtResource("5_tq3dl")
 extra_large_noise_patterns = ExtResource("4_g0kkk")
 large_scale_noise = ExtResource("6_mnubm")
@@ -73,6 +62,7 @@ medium_scale_noise = ExtResource("7_f1cuh")
 small_scale_noise = ExtResource("11_6b1a5")
 curl_noise = ExtResource("2_uu0np")
 dither_speed = 1.435
+blur_power = 3.0
 min_step_distance = 100.0
 max_step_distance = 300.0
 lighting_travel_distance = 5000.0
@@ -98,6 +88,7 @@ size = Vector2(10, 10)
 [sub_resource type="CapsuleMesh" id="CapsuleMesh_nv18y"]
 
 [node name="ExampleScene" type="Node3D" unique_id=445706962]
+script = ExtResource("1_g0kkk")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1158022341]
 environment = SubResource("Environment_ftegy")

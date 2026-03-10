@@ -6,9 +6,6 @@ seed = 2
 frequency = 0.0727
 
 [resource]
-width = 128
-height = 128
-depth = 128
 noise = SubResource("FastNoiseLite_j7bl3")
 seamless = true
 seamless_blend_skirt = 0.2

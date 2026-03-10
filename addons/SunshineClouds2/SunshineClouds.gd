@@ -52,7 +52,7 @@ class_name SunshineCloudsGD
 @export_range(0, 2) var lod_bias : float = 1.0
 
 @export_subgroup("Noise Textures")
-@export var dither_noise : Texture3D
+#@export var dither_noise : Texture3D
 @export var height_gradient : Texture2D
 		#get: return height_gradient
 		#set(value):
@@ -183,7 +183,7 @@ func _init():
 	access_resolved_depth = true
 	access_resolved_color = true
 	needs_motion_vectors = true
-	RenderingServer.call_on_render_thread(initialize_compute)
+	initialize_compute()
 
 func _notification(what):
 	if what == NOTIFICATION_PREDELETE and is_instance_valid(self):
@@ -305,8 +305,8 @@ func initialize_compute():
 	linear_sampler_state_no_repeat.repeat_w = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
 	linear_sampler_no_repeat = rd.sampler_create(linear_sampler_state_no_repeat)
 	
-	if not dither_noise:
-		dither_noise = ResourceLoader.load("res://addons/SunshineClouds2/NoiseTextures/bluenoise_Dither.png")
+	#if not dither_noise:
+		#dither_noise = ResourceLoader.load("res://addons/SunshineClouds2/NoiseTextures/bluenoise_Dither.png")
 	if not height_gradient:
 		height_gradient = ResourceLoader.load("res://addons/SunshineClouds2/NoiseTextures/HeightGradient.tres")
 	if not extra_large_noise_patterns:
@@ -507,7 +507,7 @@ func usage_bits_to_constants(bits: int) -> Array[RenderingDevice.TextureUsageBit
 func _render_callback(effect_callback_type, render_data):
 	if rd == null:
 		initialize_compute()
-	elif pipeline.is_valid() and height_gradient and extra_large_noise_patterns and large_scale_noise and medium_scale_noise and small_scale_noise and dither_noise and curl_noise:
+	elif pipeline.is_valid() and height_gradient and extra_large_noise_patterns and large_scale_noise and medium_scale_noise and small_scale_noise and curl_noise:
 		buffers = render_data.get_render_scene_buffers() as RenderSceneBuffersRD
 		if buffers:
 			msaa_mode = buffers.get_msaa_3d()
@@ -687,16 +687,16 @@ func _render_callback(effect_callback_type, render_data):
 					curl_noise_uniform.add_id(RenderingServer.texture_get_rd_texture(curl_noise.get_rid()))
 					uniforms_array.append(curl_noise_uniform)
 					
-					var dither_noise_uniform = RDUniform.new()
-					dither_noise_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
-					dither_noise_uniform.binding = 12
-					dither_noise_uniform.add_id(nearest_sampler)
-					dither_noise_uniform.add_id(RenderingServer.texture_get_rd_texture(dither_noise.get_rid()))
-					uniforms_array.append(dither_noise_uniform)
+					#var dither_noise_uniform = RDUniform.new()
+					#dither_noise_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+					#dither_noise_uniform.binding = 12
+					#dither_noise_uniform.add_id(nearest_sampler)
+					#dither_noise_uniform.add_id(RID())
+					#uniforms_array.append(dither_noise_uniform)
 					
 					var height_gradient_uniform = RDUniform.new()
 					height_gradient_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
-					height_gradient_uniform.binding = 13
+					height_gradient_uniform.binding = 12
 					height_gradient_uniform.add_id(linear_sampler_no_repeat)
 					height_gradient_uniform.add_id(RenderingServer.texture_get_rd_texture(height_gradient.get_rid()))
 					uniforms_array.append(height_gradient_uniform)
@@ -704,14 +704,14 @@ func _render_callback(effect_callback_type, render_data):
 					
 					var camera_uniform = RDUniform.new()
 					camera_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER
-					camera_uniform.binding = 14
+					camera_uniform.binding = 13
 					camera_uniform.add_id(general_data_buffer)
 					uniforms_array.append(camera_uniform)
 					
 					light_data_buffer = rd.uniform_buffer_create(6272)
 					var light_data_uniform = RDUniform.new()
 					light_data_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER
-					light_data_uniform.binding = 15
+					light_data_uniform.binding = 14
 					light_data_uniform.add_id(light_data_buffer)
 					uniforms_array.append(light_data_uniform)
 					
@@ -720,14 +720,14 @@ func _render_callback(effect_callback_type, render_data):
 					point_sample_data_buffer = rd.storage_buffer_create(512, sampleData)
 					var point_sample_data_uniform = RDUniform.new()
 					point_sample_data_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-					point_sample_data_uniform.binding = 16
+					point_sample_data_uniform.binding = 15
 					point_sample_data_uniform.add_id(point_sample_data_buffer)
 					uniforms_array.append(point_sample_data_uniform)
 					
 					var cameraData = rendersceneData.get_uniform_buffer()
 					var camera_data_uniform = RDUniform.new()
 					camera_data_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER
-					camera_data_uniform.binding = 17
+					camera_data_uniform.binding = 16
 					camera_data_uniform.add_id(cameraData)
 					uniforms_array.append(camera_data_uniform)
 					#core_uniforms_array.append(uniforms_array);
