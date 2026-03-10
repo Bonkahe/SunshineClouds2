@@ -134,6 +134,8 @@ var nearest_sampler : RID = RID()
 var linear_sampler : RID = RID()
 var linear_sampler_no_repeat : RID = RID()
 
+var scene_camera_data: RID = RID()
+
 var general_data_buffer : RID = RID()
 var light_data_buffer : RID = RID()
 var point_sample_data_buffer : RID = RID()
@@ -531,6 +533,7 @@ func _render_callback(effect_callback_type, render_data):
 			var new_size = size / resscale
 			view_count = buffers.get_view_count()
 			var rendersceneData : RenderSceneData = render_data.get_render_scene_data();
+			
 			core_uniforms_array.clear()
 			if size != last_size or uniform_sets == null or uniform_sets.size() != view_count * 4 or color_images.size() == 0 or color_images[0] != buffers.get_color_layer(0) or blit_screen_images.size() == 0 or msaa_mode != last_msaa_mode:
 				initialize_compute()
@@ -555,6 +558,7 @@ func _render_callback(effect_callback_type, render_data):
 					var base_colorformat : RDTextureFormat = rd.texture_get_format(color_images[view])
 
 					var blit_screen_format : RDTextureFormat = rd.texture_get_format(buffers.get_color_layer(view, is_msaa_on))
+					blit_screen_format.samples = RenderingDevice.TextureSamples.TEXTURE_SAMPLES_1
 					blit_screen_format.usage_bits |= RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
 					blit_screen_images.append(rd.texture_create(blit_screen_format, RDTextureView.new()))
 
@@ -724,6 +728,7 @@ func _render_callback(effect_callback_type, render_data):
 					uniforms_array.append(point_sample_data_uniform)
 					
 					var cameraData = rendersceneData.get_uniform_buffer()
+					scene_camera_data = cameraData
 					var camera_data_uniform = RDUniform.new()
 					camera_data_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER
 					camera_data_uniform.binding = 17
@@ -815,7 +820,9 @@ func _render_callback(effect_callback_type, render_data):
 					#endregion
 
 				lights_updated = true
-
+			
+			
+			
 			var framebuffer := FramebufferCacheRD.get_cache_multipass([buffers.get_color_layer(0, is_msaa_on), buffers.get_depth_layer(0, is_msaa_on)], [], view_count)
 			assert(framebuffer_format == rd.framebuffer_get_format(framebuffer))
 
@@ -869,7 +876,9 @@ func _render_callback(effect_callback_type, render_data):
 				rd.draw_list_bind_vertex_array(display_list, display_vertex_array)
 				rd.draw_list_draw(display_list, false, 1)
 				rd.draw_list_end()
-
+			
+			#rd.buffer_get_data_async(scene_camera_data, retrieve_camera_data.bind())
+			
 			if (!positionResetting && positionQuerying):
 				positionResetting = true
 				rd.buffer_get_data_async(point_sample_data_buffer, retrieve_position_queries.bind())
@@ -880,6 +889,22 @@ func _render_callback(effect_callback_type, render_data):
 			#else:
 				#if (self.effect_callback_type != CompositorEffect.EFFECT_CALLBACK_TYPE_PRE_TRANSPARENT):
 					#self.effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_PRE_TRANSPARENT
+
+#func retrieve_camera_data(data : PackedByteArray):
+	##400
+	#
+	#var floatdata = data.to_float32_array()
+	#for idx in range(floatdata.size() / 2):
+		#if floatdata[idx] != floatdata[idx + floatdata.size() / 2]:
+			#print(floatdata[idx + floatdata.size() / 2], ">", floatdata[idx], " ID:", idx)
+	#var current_pos: Vector3 = Vector3(floatdata[140], floatdata[141], floatdata[142])
+	#var prev_pos: Vector3 = Vector3(floatdata[floatdata.size() / 2 + 140], floatdata[floatdata.size() / 2 + 141], floatdata[floatdata.size() / 2 + 142])
+	#var delta: Vector3 = current_pos - prev_pos
+	#if delta.length() > 0.0:
+		#print(delta)
+	##enabled = false
+	##for i in range(16):
+		##print(floatdata[100 + i])
 
 func retrieve_position_queries(data : PackedByteArray):
 	

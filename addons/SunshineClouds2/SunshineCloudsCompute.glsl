@@ -82,6 +82,66 @@ const mat4 bayer_matrix = mat4(
     vec4(02.0 / 16.0, 14.0 / 16.0, 01.0 / 16.0, 13.0 / 16.0),
     vec4(10.0 / 16.0, 06.0 / 16.0, 09.0 / 16.0, 05.0 / 16.0));
 
+// Interleaved Gradient Noise
+// https://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare
+float quick_hash(vec2 pos) {
+	const vec3 magic = vec3(0.06711056f, 0.00583715f, 52.9829189f);
+	return fract(magic.z * fract(dot(pos, magic.xy)));
+}
+
+
+
+// Map a 2D pixel to a linear index in a resolution-independent-ish way.
+// Using Morton/Z-order helps preserve locality while staying independent of screen scale.
+uint interleaveBits(uint x) {
+    x = (x | (x << 8)) & 0x00FF00FFu;
+    x = (x | (x << 4)) & 0x0F0F0F0Fu;
+    x = (x | (x << 2)) & 0x33333333u;
+    x = (x | (x << 1)) & 0x55555555u;
+    return x;
+}
+uint morton2D(uvec2 p) {
+    return (interleaveBits(p.x) | (interleaveBits(p.y) << 1));
+}
+
+// Fast hash to create a Cranley–Patterson offset; you already have quick_hash/rand variants.
+// We stay in integer domain for stability.
+uint wanghash(uint x) {
+    x = (x ^ 61u) ^ (x >> 16);
+    x *= 9u;
+    x = x ^ (x >> 4);
+    x *= 0x27d4eb2du;
+    x = x ^ (x >> 15);
+    return x;
+}
+float uhash01(uint x) { return float(wanghash(x)) / 4294967296.0; }
+
+// Golden-ratio constants (irrational components)
+const float PHI  = 1.61803398875;   // φ
+const float G2x  = 1.0 / PHI;       // ~0.618...
+const float G2y  = 1.0 / (PHI*PHI); // ~0.381...
+
+// frameIndex: a small integer derived from time; keeps temporal variation bounded.
+// You can also pass an explicit frame counter via your UBO if you prefer.
+int frameIndexFromTime(float t) { return int(floor(t * 24.0)) & 1023; }
+
+float blue_dither_value(uvec2 ipix, float time) {
+    uint morton = morton2D(ipix);
+    uint frame  = uint(frameIndexFromTime(time));
+
+    // CP rotation in 2D
+    vec2 cp = vec2(uhash01(morton ^ (frame*0x9E3779B9u)),
+                   uhash01(morton ^ (frame*0x85EBCA6Bu)));
+
+    // R2 point for this pixel+frame
+    float i = float(morton + frame * 4096u); // stride keeps frames well-separated
+    vec2  r2 = fract(vec2(G2x, G2y) * i + cp);
+
+    // Collapse to scalar in [0,1)
+    return fract(r2.x + r2.y);
+}
+
+
 float quadraticOut(float t) {
   return -t * (t - 2.0);
 }
@@ -479,24 +539,24 @@ void main() {
 	
 	vec3 raydirection = normalize(rd_world);
 	vec3 rayOrigin = scene_data_block.data.main_cam_inv_view_matrix[3].xyz; //center of camera for the ray origin, not worried about the screen width playing in, as it's for clouds.
-
+	
 
 	//DITHER
 
 	// expirements with interleved gradient noise.
+	// float smallNoise = quick_hash(gl_GlobalInvocationID.xy + vec2(genericData.data.time * 5.0, genericData.data.time * 2.0));
+
 	// float ditherScale = 40.037;
 	// vec3 ditherUV = vec3(depthUV.x * ditherScale , depthUV.y * ditherScale , genericData.data.time);
 	// float smallNoise = texture(dither_small, ditherUV).r;
-	// float pixel_dither = get_dither_value(uv);
-	// vec3 ign_noise_uv = vec3(uv.x, fract(genericData.data.time), uv.y) * 2.0 - 1.0;
-	// float ign_noise = fract(52.9829189 * fract(dot(ign_noise_uv, vec3(0.006711056, 0.00583715, 1.61803398875))));
-	// float ditherValue = ign_noise;
 
-	float ditherScale = 40.037;
-	vec3 ditherUV = vec3(depthUV.x * ditherScale , depthUV.y * ditherScale , genericData.data.time);
-	float smallNoise = texture(dither_small, ditherUV).r;
+	// float ditherValue = smallNoise * 2.0;
 
-	float ditherValue = smallNoise * 2.0;
+
+	uvec2 ipix = uvec2(uv); // uv is ivec2(gl_GlobalInvocationID.xy) in your file
+	float ditherValue = blue_dither_value(ipix, genericData.data.time);
+
+
 	//float ditherValue = rand(vec2(ditherUV.x * ditherUV.z * ditherScale, ditherUV.y * ditherUV.z * ditherScale));
 
 	//ATMOSPHERICS
@@ -841,6 +901,7 @@ void main() {
 			density += newdensity;
 			if (density >= 1.0){
 				densityBreak = true;
+				highestDensityDistance = traveledDistance;
 				break;
 			}
 		}
@@ -904,14 +965,21 @@ void main() {
 
 	//accumulation preperation:
 	float finalDensityDistance = min(traveledDistance, highestDensityDistance);
+	// float distancetest = mix(traveledDistance, highestDensityDistance, clamp(smoothstep(0.0, maxstep, traveledDistance - highestDensityDistance), 0.0, 1.0));
+	// if (density > 0.01){
+	// 	distancetest = traveledDistance;
+	// }
+
 	vec3 worldFinalPos = rayOrigin + raydirection * traveledDistance;
-	vec3 delta = rayOrigin - scene_data_block.prev_data.main_cam_inv_view_matrix[3].xyz;
+
+	vec3 last_origin = vec3(scene_data_block.prev_data.inv_view_matrix[0].w, scene_data_block.prev_data.inv_view_matrix[1].w, scene_data_block.prev_data.inv_view_matrix[2].w);
+	last_origin += raydirection * traveledDistance;
+	vec3 delta = worldFinalPos - last_origin;
 	worldFinalPos += delta;
 	
 	vec4 reprojectedScreenPos = vec4(0.0);
 
 	#if ((GODOT_VERSION_MAJOR == 4) && (GODOT_VERSION_MINOR == 4)) || ((GODOT_VERSION_MAJOR == 4) && (GODOT_VERSION_MINOR == 5))
-
 		//Prevview is already actually the inv_view (due to the way retrieving the transform works), so inversing it here is making it the equalivant of View_Matrix.
 		vec4 reprojectedClipPos = scene_data_block.prev_data.view_matrix * vec4(worldFinalPos, 1.0);
 		
@@ -954,14 +1022,14 @@ void main() {
 	ivec2 clampedUV = clamp(adjustedUV, ivec2(0), size - ivec2(1)); //having two lets me check if clamping it changed the reprojected uv, if it did that means it was offscreen, so rebuild data.
 
 	//execute accumilation.
-	float accumdecay = genericData.data.accumilation_decay;
-
+	float accumdecay = mix(genericData.data.accumilation_decay, 0.0, clamp(length(delta) / genericData.data.time / 10.0, 0.0, 1.0));
+	//float accumdecay = genericData.data.accumilation_decay;
 	//alternate back and forth to avoid stepping on pixels being written too.
 	float usingaccumA = genericData.data.isAccumulationA;
 	
 	//float finalDensityDistance = max(traveledDistance, highestDensityDistance);
 	//linear_depth = max(linear_depth, traveledDistance);
-	float travelspeed = length(delta) + maxstep;
+	float travelspeed = length(delta);
 	//bool debugCollisions = false;
 	if (usingaccumA > 0.0){
 		currentColorAccumilation = imageLoad(accum_1A_image, adjustedUV).rgba;
@@ -973,7 +1041,7 @@ void main() {
 		float if_break = max(float(override), abs(length(clampedUV - adjustedUV)));
 		// if_break = max(if_break, lightColor.a - 0.8 - currentColorAccumilation.a); //Lets super high accumilation still look passable, but at the cost of less soft edges.
 
-		if (if_break > 0.0 || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed)){
+		if (if_break > 0.0 || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed * 0.5)){
 			currentColorAccumilation = lightColor;
 			//debugCollisions = true;
 			currentDataAccumilation.r = initialdistanceSample;
@@ -1003,7 +1071,7 @@ void main() {
 		float if_break = max(float(override), abs(length(clampedUV - adjustedUV)));
 		// if_break = max(if_break, lightColor.a - 0.8 - currentColorAccumilation.a); //Lets super high accumilation still look passable, but at the cost of less soft edges.
 
-		if (if_break > 0.0 || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed)){
+		if (if_break > 0.0 || (currentDepthBreak != currentDataAccumilation.a && abs(initialdistanceSample - currentDataAccumilation.r) > travelspeed * 0.5)){
 			currentColorAccumilation = lightColor;
 			//debugCollisions = true;
 			currentDataAccumilation.r = initialdistanceSample;
@@ -1042,6 +1110,10 @@ void main() {
 	}
 	currentDataAccumilation.r = min(currentDataAccumilation.r, initialdistanceSample);
 	
+	// vec3 invpos = inverse(scene_data_block.prev_data.main_cam_inv_view_matrix)[3].xyz;
+	// if (invpos == rayOrigin){
+	// 	currentColorAccumilation.rgb = vec3(1.0, 0.0, 0.0);
+	// }
 	imageStore(output_color_image, uv, currentColorAccumilation);
 	imageStore(output_data_image, uv, currentDataAccumilation);
 	//}

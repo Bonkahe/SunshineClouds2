@@ -8,7 +8,7 @@
 [ext_resource type="Texture2D" uid="uid://g02m2ewpwusq" path="res://addons/SunshineClouds2/NoiseTextures/HeightGradient.tres" id="5_tq3dl"]
 [ext_resource type="NoiseTexture3D" uid="uid://6ed3lvlpbqmg" path="res://addons/SunshineClouds2/NoiseTextures/LargeScaleNoise.tres" id="6_mnubm"]
 [ext_resource type="NoiseTexture3D" uid="uid://dxyewgt7o40m0" path="res://addons/SunshineClouds2/NoiseTextures/MediumScaleNoise.tres" id="7_f1cuh"]
-[ext_resource type="RDShaderFile" uid="uid://cpef10h5lggny" path="res://addons/SunshineClouds2/SunshineCloudsPostCompute.msaa.glsl" id="7_oshd0"]
+[ext_resource type="RDShaderFile" uid="uid://cqhejbalsrvjp" path="res://addons/SunshineClouds2/SunshineCloudsPostCompute.glsl" id="7_oshd0"]
 [ext_resource type="RDShaderFile" uid="uid://crfpk8ta4qxsk" path="res://addons/SunshineClouds2/SunshineCloudsPreCompute.glsl" id="9_penpr"]
 [ext_resource type="Script" uid="uid://dnblgqynq1t7l" path="res://addons/SunshineClouds2/SunshineClouds.gd" id="10_re0u6"]
 [ext_resource type="NoiseTexture3D" uid="uid://bnck2kxeg5bkg" path="res://addons/SunshineClouds2/NoiseTextures/SmallScaleNoise.tres" id="11_6b1a5"]
@@ -34,12 +34,14 @@ fog_depth_end = 40000.0
 interpolation_mode = 2
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_g0kkk"]
-frequency = 0.3279
+frequency = 0.0763
 
 [sub_resource type="NoiseTexture3D" id="NoiseTexture3D_0jtrb"]
+width = 128
+height = 128
+depth = 32
 noise = SubResource("FastNoiseLite_g0kkk")
 color_ramp = SubResource("Gradient_oshd0")
-seamless = true
 
 [sub_resource type="CompositorEffect" id="CompositorEffect_0jtrb"]
 resource_local_to_scene = false
@@ -51,16 +53,11 @@ access_resolved_depth = true
 needs_motion_vectors = true
 needs_normal_roughness = false
 script = ExtResource("10_re0u6")
-clouds_coverage = 0.763
-clouds_density = 1.5550000000000002
-atmospheric_density = 0.754
-lighting_density = 0.162
-clouds_anisotropy = 0.03
-clouds_powder = 0.945
-accumulation_decay = 0.8
-curl_noise_strength = 2546.875
-wind_swept_strength = 500.0
-resolution_scale = 0
+clouds_anisotropy = 0.043
+clouds_powder = 1.0
+ambient_occlusion_color = Color(0.80722207, 0.3812313, 0.25500897, 1)
+max_lighting_steps = 16.0
+lod_bias = 2.0
 dither_noise = SubResource("NoiseTexture3D_0jtrb")
 height_gradient = ExtResource("5_tq3dl")
 extra_large_noise_patterns = ExtResource("4_g0kkk")
@@ -68,8 +65,11 @@ large_scale_noise = ExtResource("6_mnubm")
 medium_scale_noise = ExtResource("7_f1cuh")
 small_scale_noise = ExtResource("11_6b1a5")
 curl_noise = ExtResource("2_uu0np")
-min_step_distance = 50.0
-max_step_distance = 600.0
+dither_speed = 1.435
+blur_power = 0.0
+min_step_distance = 100.0
+max_step_distance = 501.0
+lighting_travel_distance = 5000.0
 pre_pass_compute_shader = ExtResource("9_penpr")
 compute_shader = ExtResource("1_0jtrb")
 post_pass_compute_shader = ExtResource("7_oshd0")
@@ -167,10 +167,6 @@ tracked_directional_light_shadow_steps = Array[int]([32])
 tracked_point_lights = [NodePath("../OmniLight3D")]
 tracked_point_effectors = [NodePath("../SunshineCloudsEffector"), NodePath("../SunshineCloudsEffector2")]
 wind_direction = Vector3(2, 0, 2)
-extra_large_structures_wind_speed = 0.0
-large_structures_wind_speed = 0.0
-medium_structures_wind_speed = 0.0
-small_structures_wind_speed = 0.0
 metadata/_custom_type_script = "uid://djusduuxf0voj"
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=983599202]
