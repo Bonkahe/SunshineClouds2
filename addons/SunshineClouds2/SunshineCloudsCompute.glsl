@@ -553,8 +553,8 @@ void main() {
 	// float ditherValue = smallNoise * 2.0;
 
 
-	uvec2 ipix = uvec2(uv); // uv is ivec2(gl_GlobalInvocationID.xy) in your file
-	float ditherValue = blue_dither_value(ipix, genericData.data.time);
+	// uvec2 ipix = uvec2(uv);
+	float ditherValue = blue_dither_value(uv, genericData.data.time);
 
 
 	//float ditherValue = rand(vec2(ditherUV.x * ditherUV.z * ditherScale, ditherUV.y * ditherUV.z * ditherScale));
@@ -970,10 +970,10 @@ void main() {
 	// 	distancetest = traveledDistance;
 	// }
 
-	vec3 worldFinalPos = rayOrigin + raydirection * highestDensityDistance;
+	vec3 worldFinalPos = rayOrigin + raydirection * traveledDistance;
 
 	vec3 last_origin = vec3(scene_data_block.prev_data.inv_view_matrix[0].w, scene_data_block.prev_data.inv_view_matrix[1].w, scene_data_block.prev_data.inv_view_matrix[2].w);
-	last_origin += raydirection * highestDensityDistance;
+	last_origin += raydirection * traveledDistance;
 	vec3 delta = worldFinalPos - last_origin;
 	worldFinalPos += delta;
 	
