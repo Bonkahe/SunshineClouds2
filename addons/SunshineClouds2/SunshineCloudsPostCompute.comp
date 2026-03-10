@@ -7,7 +7,7 @@ layout(binding = 0) uniform sampler2D input_data_image;
 layout(binding = 1) uniform sampler2D input_color_image;
 layout(rgba16f, binding = 2) uniform image2D reflections_sample;
 layout(binding = 3) uniform Sampler2DMSAA input_screen_image;
-layout(rgba16f, binding = 4) restrict uniform image2D output_screen_image;
+layout(rgba16f, binding = 4) restrict uniform Image2DMSAA output_screen_image;
 layout(binding = 5) uniform Sampler2DMSAA depth_image;
 
 
@@ -335,13 +335,11 @@ void main() {
 		// 	lerp = (clamp((traveledDistance - linear_depth) / (traveledDistance - finalDensityDistance), 0.0, 1.0)) * firsttravelblend;
 		// }
 
-		if (initialdistanceSample > linear_depth + maxstep){
+
+		// results in clouds in between the player and solid objects being softer, but has artifacts around objects with clouds behind them.
+		if (initialdistanceSample > linear_depth){
 			lerp = 1.0;
 		}
-		// results in clouds in between the player and solid objects being softer, but has artifacts around objects with clouds behind them.
-		// if (initialdistanceSample > linear_depth && traveledDistance > linear_depth + maxstep){
-		// 	lerp = 1.0;
-		// }
 		// else if (traveledDistance > linear_depth){
 		// 	float firsttravelblend = mix(1.0 - clamp((traveledDistance - initialdistanceSample) / minstep, 0.0, 1.0), 1.0, clamp(initialdistanceSample / maxstep, 0.0, 1.0));
 		// 	lerp = (clamp((traveledDistance - linear_depth) / (traveledDistance - initialdistanceSample), 0.0, 1.0)) * firsttravelblend;
@@ -385,15 +383,12 @@ void main() {
 			color.rgb = vec3(lerp);
 		}
 
+		imageStoreMSAA(output_screen_image, uv, sampleIdx, color);
 
-		// imageStoreMSAA(output_screen_image, uv, sampleIdx, color);
-
-		averageColor += color;
+		averageColor.rgb += color.rgb;
 	}
 
-	// averageColor /= textureSamplesMSAA(depth_image);
-
-	imageStore(output_screen_image, uv, vec4(averageColor.rgb, 1.0));
+	averageColor /= textureSamplesMSAA(depth_image);
 
 	if (resolutionScale != 1){
 		imageStore(reflections_sample, ivec2(accumUV * vec2(lowres_size)), vec4(averageColor.rgb, traveledDistance));
