@@ -8,7 +8,7 @@
 [ext_resource type="Texture2D" uid="uid://g02m2ewpwusq" path="res://addons/SunshineClouds2/NoiseTextures/HeightGradient.tres" id="5_tq3dl"]
 [ext_resource type="NoiseTexture3D" uid="uid://6ed3lvlpbqmg" path="res://addons/SunshineClouds2/NoiseTextures/LargeScaleNoise.tres" id="6_mnubm"]
 [ext_resource type="NoiseTexture3D" uid="uid://dxyewgt7o40m0" path="res://addons/SunshineClouds2/NoiseTextures/MediumScaleNoise.tres" id="7_f1cuh"]
-[ext_resource type="RDShaderFile" uid="uid://cpef10h5lggny" path="res://addons/SunshineClouds2/SunshineCloudsPostCompute.msaa.glsl" id="8_g0kkk"]
+[ext_resource type="RDShaderFile" uid="uid://cpef10h5lggny" path="res://addons/SunshineClouds2/SunshineCloudsPostCompute.msaa.glsl" id="7_oshd0"]
 [ext_resource type="RDShaderFile" uid="uid://crfpk8ta4qxsk" path="res://addons/SunshineClouds2/SunshineCloudsPreCompute.glsl" id="9_penpr"]
 [ext_resource type="Script" uid="uid://dnblgqynq1t7l" path="res://addons/SunshineClouds2/SunshineClouds.gd" id="10_re0u6"]
 [ext_resource type="NoiseTexture3D" uid="uid://bnck2kxeg5bkg" path="res://addons/SunshineClouds2/NoiseTextures/SmallScaleNoise.tres" id="11_6b1a5"]
@@ -72,7 +72,7 @@ min_step_distance = 50.0
 max_step_distance = 600.0
 pre_pass_compute_shader = ExtResource("9_penpr")
 compute_shader = ExtResource("1_0jtrb")
-post_pass_compute_shader = ExtResource("8_g0kkk")
+post_pass_compute_shader = ExtResource("7_oshd0")
 wind_direction = Vector3(2, 0, 2)
 directional_lights_data = Array[Vector4]([Vector4(0.41753474, 0.55014515, -0.7231909, 32), Vector4(1, 1, 1, 1)])
 point_lights_data = Array[Vector4]([Vector4(10743.6, 6693.89, -43458.2, 20000), Vector4(0.76, 0.374933, 0.1824, 11.7)])

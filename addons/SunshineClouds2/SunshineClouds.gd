@@ -165,6 +165,7 @@ var msaa_mode := RenderingServer.ViewportMSAA.VIEWPORT_MSAA_DISABLED
 func refresh_compute():
 	maskDrawnRid = RID()
 	last_size = Vector2i.ZERO
+	initialize_compute()
 
 func update_mask(newMask : RID):
 	maskDrawnRid = newMask
@@ -481,6 +482,28 @@ func initialize_raster_pipelines(color_texture : RID, depth_texture : RID):
 
 	display_pipeline = rd.render_pipeline_create(display_shader, framebuffer_format, display_vertex_format, RenderingDevice.RenderPrimitive.RENDER_PRIMITIVE_TRIANGLES, pipeline_rasterization_state, pipeline_multisample_state, pipeline_depthstencil_state, pipeline_colorblend_state)
 
+
+func usage_bits_to_constants(bits: int) -> Array[RenderingDevice.TextureUsageBits]:
+	var res: Array[RenderingDevice.TextureUsageBits] = []
+	var ALL_BITS := [
+		RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT,
+		RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT,
+		RenderingDevice.TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+		RenderingDevice.TEXTURE_USAGE_DEPTH_RESOLVE_ATTACHMENT_BIT,
+		RenderingDevice.TEXTURE_USAGE_STORAGE_BIT,
+		RenderingDevice.TEXTURE_USAGE_STORAGE_ATOMIC_BIT,
+		RenderingDevice.TEXTURE_USAGE_CPU_READ_BIT,
+		RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT,
+		RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT,
+		RenderingDevice.TEXTURE_USAGE_CAN_COPY_TO_BIT,
+		RenderingDevice.TEXTURE_USAGE_INPUT_ATTACHMENT_BIT
+	]
+	
+	for b in ALL_BITS:
+		if (bits & b) != 0:
+			res.append(b)
+	return res
+
 func _render_callback(effect_callback_type, render_data):
 	if rd == null:
 		initialize_compute()
@@ -524,9 +547,8 @@ func _render_callback(effect_callback_type, render_data):
 
 				for view in range(view_count):
 					color_images.append(buffers.get_color_layer(view, false))
-
 					var depth_image : RID = buffers.get_depth_layer(view, false)
-
+					
 					var blankImageData : PackedByteArray = []
 					blankImageData.resize(new_size.x * new_size.y * 4 * 4)
 					

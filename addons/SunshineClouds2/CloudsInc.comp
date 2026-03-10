@@ -9,7 +9,7 @@
 #define MAX_VIEWS 2
 
 #define GODOT_VERSION_MAJOR 4
-#define GODOT_VERSION_MINOR 6
+#define GODOT_VERSION_MINOR 7
 
 #ifndef MSAA_ENABLED
 	#define MSAA_ENABLED 0
