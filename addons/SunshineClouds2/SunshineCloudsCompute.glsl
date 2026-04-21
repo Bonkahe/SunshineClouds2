@@ -2,6 +2,8 @@
 #version 450
 #define PI 3.141592
 #define ABSORPTION_COEFFICIENT 0.9
+#define sphere_origin vec3(0.0, -1000.0, 0.0)
+#define sphere_radius 60000.0
 
 #include "./CloudsInc.comp"
 
@@ -61,7 +63,6 @@ layout(binding = 16, std140) uniform SceneDataBlock {
 // 	float accumilation_decay;
 // 	vec2 cameraRotation;
 // } params;
-
 //Helpers
 const int BayerFilter16[16] =
 {
@@ -214,8 +215,9 @@ float sampleScene(
 	float curlPower, 
 	float lod, 
 	bool ambientsample)
-	{
-	float clampedWorldHeight = remap(worldPosition.y, cloudfloor, cloudceiling, 0.0, 1.0);
+{
+	float distance_to_radius = length(worldPosition - sphere_origin);
+	float clampedWorldHeight = remap(distance_to_radius, cloudfloor + sphere_radius, cloudceiling + sphere_radius, 0.0, 1.0);
 	vec4 gradientSample = texture(heightmask, vec2(clampedWorldHeight, 0.5)).rgba;
 	
 
@@ -240,7 +242,8 @@ float sampleScene(
 			worldPosition += ((texture(curl_noise, (worldPosition - mediumNoisePos) / mediumnoisescale).xyz * 2.0 - 1.0) * vec3(1.0, 0.2, 1.0)) * curlPower * curlHeightSample * curlLod;
 			worldPosition += ((texture(curl_noise, (worldPosition - mediumNoisePos) / mediumnoisescale).xyz * 2.0 - 1.0) * vec3(1.0, 0.2, 1.0)) * curlPower * curlHeightSample * curlLod;
 			
-			clampedWorldHeight = remap(worldPosition.y, cloudfloor, cloudceiling, 0.0, 1.0);
+			distance_to_radius = length(worldPosition - sphere_origin);
+			clampedWorldHeight = remap(distance_to_radius, cloudfloor + sphere_radius, cloudceiling + sphere_radius, 0.0, 1.0);
 			gradientSample = texture(heightmask, vec2(clampedWorldHeight, 0.5)).rgba;
 		}
 	}
@@ -270,7 +273,8 @@ float sampleSceneCoarse(
 	float coverage,
 	float lod)
 	{
-	float clampedWorldHeight = remap(worldPosition.y, cloudfloor, cloudceiling, 0.0, 1.0);
+	float distance_to_radius = length(worldPosition - sphere_origin);
+	float clampedWorldHeight = remap(distance_to_radius, cloudfloor + sphere_radius, cloudceiling + sphere_radius, 0.0, 1.0);
 	vec4 gradientSample = texture(heightmask, vec2(clampedWorldHeight, 0.5)).rgba;
 
 	float edgeFade = min(smoothstep(0.0, 0.1, clampedWorldHeight), smoothstep(1.0, 0.9, clampedWorldHeight));
@@ -330,8 +334,10 @@ float sampleLighting(
 		traveledDistance = mix(eachShortStep, actualDistance, clamp(quadraticOut(i / stepCountFloat), 0.0, 1.0));
 		curPos = worldPosition + sunDirection * traveledDistance;
 
-		if (density < 1.0 && clamp(curPos.y, cloudfloor, cloudceiling) == curPos.y){
-			heightGradient = remap(curPos.y, cloudfloor, cloudceiling, 0.0, 1.0);
+		float distance_to_radius = length(curPos - sphere_origin);
+
+		if (density < 1.0 && distance_to_radius < cloudceiling + sphere_radius && distance_to_radius > cloudfloor + sphere_radius){
+			heightGradient = remap(distance_to_radius, cloudfloor + sphere_radius, cloudceiling + sphere_radius, 0.0, 1.0);
 			
 			heightGradient = clamp(smoothstep(sunUpValue - 0.1, sunUpValue, heightGradient), 0.0, 1.0);
 			float extraLargeShape = texture(extra_large_noise, (curPos.xz - extralargeNoisePos.xz) / extralargenoisescale).a;
@@ -393,7 +399,10 @@ void sampleAtmospherics(
 	inout float iOdRlh, 
 	inout float iOdMie)
 	{
-	float iHeight = curPos.y / atmosphericHeight;
+	float distance_to_radius = length(curPos - sphere_origin);
+	float clampedWorldHeight = remap(distance_to_radius, genericData.data.cloud_floor + sphere_radius, genericData.data.cloud_ceiling + sphere_radius, 0.0, 1.0);
+
+	float iHeight = clampedWorldHeight;
 	float odStepRlh = exp(-iHeight / Rayleighscaleheight) * distanceTraveled;
 	float odStepMie = exp(-iHeight / Miescaleheight) * distanceTraveled;
 	iOdRlh += odStepRlh;
@@ -786,7 +795,10 @@ void main() {
 		
 		//sampleAtmospherics(curPos, atmosphericHeight, newStep, Rayleighscaleheight, Miescaleheight, RayleighScatteringCoef, MieScatteringCoef, atmosphericDensity, density, totalRlh, totalMie, iOdRlh, iOdMie); 
 		atmoSamples += 1.0;
-		if (clamp(curPos.y, cloudfloor, cloudceiling) == curPos.y){
+		float distance_to_radius = length(curPos - sphere_origin);
+		float clampedWorldHeight = clamp(distance_to_radius, cloudfloor + sphere_radius, cloudceiling + sphere_radius);
+
+		if (clampedWorldHeight == distance_to_radius){
 
 			curLod = 1.0 - clamp(traveledDistance / lodMaxDistance, 0.0, 1.0);
 			// newdensity = sampleSceneCoarse(largeNoisePos, curPos, cloudceiling, cloudfloor, maskSample.a, largenoiseScale, coverage, curLod);
@@ -906,14 +918,14 @@ void main() {
 			}
 		}
 		else{
-			if (min(curPos.y - cloudceiling, raydirection.y) > 0.0 || max(curPos.y - cloudfloor, raydirection.y) < 0.0){
+			// if (min(curPos.y - cloudceiling, raydirection.y) > 0.0 || max(curPos.y - cloudfloor, raydirection.y) < 0.0){
 				
-				traveledDistance = min(maxTheoreticalStep, linear_depth);
-				curPos = rayOrigin + raydirection * traveledDistance;
+			// 	traveledDistance = min(maxTheoreticalStep, linear_depth);
+			// 	curPos = rayOrigin + raydirection * traveledDistance;
 				
-				//debugCollisions = true;
-				break;
-			}
+			// 	//debugCollisions = true;
+			// 	break;
+			// }
 			
 			newStep = maxstep;
 		}

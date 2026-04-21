@@ -14,16 +14,8 @@
 [ext_resource type="Script" uid="uid://dnblgqynq1t7l" path="res://addons/SunshineClouds2/SunshineClouds.gd" id="10_re0u6"]
 [ext_resource type="NoiseTexture3D" uid="uid://bnck2kxeg5bkg" path="res://addons/SunshineClouds2/NoiseTextures/SmallScaleNoise.tres" id="11_6b1a5"]
 
-[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_unbdf"]
-sky_horizon_color = Color(0.662243, 0.671743, 0.686743, 1)
-ground_horizon_color = Color(0.662243, 0.671743, 0.686743, 1)
-
-[sub_resource type="Sky" id="Sky_nuogy"]
-sky_material = SubResource("ProceduralSkyMaterial_unbdf")
-
 [sub_resource type="Environment" id="Environment_ftegy"]
 background_mode = 2
-sky = SubResource("Sky_nuogy")
 tonemap_mode = 2
 glow_enabled = true
 fog_mode = 1
@@ -41,32 +33,31 @@ access_resolved_depth = true
 needs_motion_vectors = true
 needs_normal_roughness = false
 script = ExtResource("10_re0u6")
-clouds_coverage = 0.85
+clouds_coverage = 0.839
+atmospheric_density = 1.043
 clouds_anisotropy = 0.207
 clouds_powder = 1.0
 ambient_occlusion_color = Color(0.80722207, 0.3812313, 0.25500897, 1)
 accumulation_decay = 0.9
-large_noise_scale = 60000.0
-medium_noise_scale = 12834.043
-small_noise_scale = 4538.138
-clouds_detail_power = 1.038
-curl_noise_strength = 3242.139
-wind_swept_range = 0.545
+large_noise_scale = 48191.336
+medium_noise_scale = 14407.271
+small_noise_scale = 4148.375
+clouds_detail_power = 0.66
+curl_noise_strength = 1153.421
+wind_swept_range = 0.175
 wind_swept_strength = 2345.912
+cloud_ceiling = 8000.0
 max_lighting_steps = 12.0
-resolution_scale = 0
-lod_bias = 2.0
 height_gradient = ExtResource("5_tq3dl")
 extra_large_noise_patterns = ExtResource("4_g0kkk")
 large_scale_noise = ExtResource("6_mnubm")
 medium_scale_noise = ExtResource("7_f1cuh")
 small_scale_noise = ExtResource("11_6b1a5")
 curl_noise = ExtResource("2_uu0np")
-dither_speed = 1.88
-blur_power = 3.0
+dither_speed = 1.4849999999999999
 min_step_distance = 100.0
-max_step_distance = 300.0
-lighting_travel_distance = 5000.0
+max_step_distance = 600.0
+lighting_travel_distance = 2000.0
 pre_pass_compute_shader = ExtResource("9_penpr")
 compute_shader = ExtResource("1_0jtrb")
 post_pass_compute_shader = ExtResource("7_oshd0")
@@ -88,6 +79,13 @@ size = Vector2(10, 10)
 
 [sub_resource type="CapsuleMesh" id="CapsuleMesh_nv18y"]
 
+[sub_resource type="SphereMesh" id="SphereMesh_g0kkk"]
+radius = 40000.0
+height = 80000.0
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_0jtrb"]
+albedo_color = Color(0.30055055, 0.3419059, 0.26527655, 1)
+
 [node name="ExampleScene" type="Node3D" unique_id=445706962]
 script = ExtResource("1_g0kkk")
 
@@ -101,29 +99,36 @@ shadow_enabled = true
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1641415156]
 transform = Transform3D(1000, 0, 0, 0, 12000, 0, 0, 0, 1000, 6000, 6000, 0)
+visible = false
 mesh = SubResource("CylinderMesh_o8tia")
 
 [node name="MeshInstance3D2" type="MeshInstance3D" parent="." unique_id=1396086920]
 transform = Transform3D(1000, 0, 0, 0, 1000, 0, 0, 0, 1000, 6000, 6000, -40000)
+visible = false
 mesh = SubResource("BoxMesh_nv18y")
 
 [node name="MeshInstance3D3" type="MeshInstance3D" parent="." unique_id=2102038455]
 transform = Transform3D(1000, 0, 0, 0, 12000, 0, 0, 0, 1000, 6000, 6000, -20000)
+visible = false
 mesh = SubResource("CylinderMesh_o8tia")
 
 [node name="MeshInstance3D4" type="MeshInstance3D" parent="." unique_id=718104584]
 transform = Transform3D(1000, 0, 0, 0, 12000, 0, 0, 0, 1000, 6000, 6000, -60000)
+visible = false
 mesh = SubResource("CylinderMesh_o8tia")
 
 [node name="MeshInstance3D5" type="MeshInstance3D" parent="." unique_id=197153142]
 transform = Transform3D(1000, 0, 0, 0, 12000, 0, 0, 0, 1000, 6000, 6000, -80000)
+visible = false
 mesh = SubResource("CylinderMesh_o8tia")
 
 [node name="MeshInstance3D6" type="MeshInstance3D" parent="." unique_id=893518687]
+visible = false
 mesh = SubResource("PlaneMesh_o8tia")
 
 [node name="MeshInstance3D7" type="MeshInstance3D" parent="." unique_id=702614816]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+visible = false
 mesh = SubResource("CapsuleMesh_nv18y")
 
 [node name="Label3D" type="Label3D" parent="." unique_id=133158045]
@@ -164,12 +169,13 @@ tracked_directional_lights = [NodePath("../DirectionalLight3D")]
 tracked_directional_light_shadow_steps = Array[int]([32])
 tracked_point_lights = [NodePath("../OmniLight3D")]
 tracked_point_effectors = [NodePath("../SunshineCloudsEffector"), NodePath("../SunshineCloudsEffector2")]
-extra_large_structures_wind_speed = 0.0
-large_structures_wind_speed = 0.0
-medium_structures_wind_speed = 0.0
-small_structures_wind_speed = 0.0
 metadata/_custom_type_script = "uid://djusduuxf0voj"
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=983599202]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 572.5508, 12376.3, -20899.64)
 far = 400000.0
+
+[node name="MeshInstance3D8" type="MeshInstance3D" parent="." unique_id=1530765459]
+transform = Transform3D(1.489558, 0, 0, 0, 1.489558, 0, 0, 0, 1.489558, 0, 0, 0)
+mesh = SubResource("SphereMesh_g0kkk")
+surface_material_override/0 = SubResource("StandardMaterial3D_0jtrb")
