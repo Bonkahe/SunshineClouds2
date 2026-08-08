@@ -75,6 +75,33 @@ var _small_clouds_domain: float = 0.0
 
 var _updating_settings: bool = false
 
+# --- Multi-threaded rendering fix (thread_model = 2) --------------------------
+# clouds_resource IS the compositor effect: its fields are written here from
+# _process (main thread) and read in _render_callback (render thread). In Safe
+# mode that is the same thread and all is well; in threaded mode, the clear()
+# followed by the append()s in retrieve_texture_data opened a window where the
+# render thread could read an EMPTY light array — black clouds with a fringe
+# along the edge of the geometry.
+#
+# Fix: build the arrays in locals (node access has to stay on the main thread),
+# then hand them over to the effect from the render thread. The swap is thereby
+# serialised against _render_callback. In Safe mode call_on_render_thread runs
+# immediately: behaviour unchanged.
+#
+# The copies below are what _process compares against, so the main thread never
+# reads clouds_resource's arrays at all.
+var _dir_data_cache : Array[Vector4] = []
+var _point_data_cache : Array[Vector4] = []
+var _effector_data_cache : Array[Vector4] = []
+
+func _apply_lights_data(dir_data : Array[Vector4], point_data : Array[Vector4], effector_data : Array[Vector4]):
+	if clouds_resource == null:
+		return
+	clouds_resource.directional_lights_data = dir_data
+	clouds_resource.point_lights_data = point_data
+	clouds_resource.point_effector_data = effector_data
+	clouds_resource.lights_updated = true
+
 func _ready():
 	
 	if update_continuously:
@@ -112,8 +139,10 @@ func _process(delta : float):
 				clouds_resource.sampled_environment_fog_color = ambience_sample_environment.fog_light_color
 				#clouds_resource.cloud_ambient_color = ambience_sample_environment.fog_light_color
 			
-			if (tracked_directional_lights.size() * 2.0 != clouds_resource.directional_lights_data.size() \
-			or tracked_point_lights.size() * 2.0 != clouds_resource.point_lights_data.size()\
+			# Comparisons run against the driver's own copies, never against
+			# clouds_resource's arrays: those now belong to the render thread.
+			if (tracked_directional_lights.size() * 2.0 != _dir_data_cache.size() \
+			or tracked_point_lights.size() * 2.0 != _point_data_cache.size()\
 			or tracked_directional_lights.size() != tracked_directional_light_shadow_steps.size()):
 				
 				retrieve_texture_data()
@@ -122,21 +151,21 @@ func _process(delta : float):
 			for i in range(tracked_directional_lights.size()):
 				if tracked_directional_lights[i] == null:
 					continue
-				if direction_light_data_changed(tracked_directional_lights[i], tracked_directional_light_shadow_steps[i], clouds_resource.directional_lights_data[i * 2], clouds_resource.directional_lights_data[i * 2 + 1]):
+				if direction_light_data_changed(tracked_directional_lights[i], tracked_directional_light_shadow_steps[i], _dir_data_cache[i * 2], _dir_data_cache[i * 2 + 1]):
 					retrieve_texture_data()
 					return
 			
 			for i in range(tracked_point_lights.size()):
 				if tracked_point_lights[i] == null:
 					continue
-				if point_light_data_changed(tracked_point_lights[i], clouds_resource.point_lights_data[i * 2], clouds_resource.point_lights_data[i * 2 + 1]):
+				if point_light_data_changed(tracked_point_lights[i], _point_data_cache[i * 2], _point_data_cache[i * 2 + 1]):
 					retrieve_texture_data()
 					return
 			
 			for i in range(tracked_point_effectors.size()):
 				if tracked_point_effectors[i] == null:
 					continue
-				if point_effector_data_changed(tracked_point_effectors[i], clouds_resource.point_effector_data[i * 2], clouds_resource.point_effector_data[i * 2 + 1]):
+				if point_effector_data_changed(tracked_point_effectors[i], _effector_data_cache[i * 2], _effector_data_cache[i * 2 + 1]):
 					retrieve_texture_data()
 					return
 			
@@ -211,9 +240,11 @@ func retrieve_texture_data():
 		_medium_clouds_domain = clouds_resource.medium_noise_scale / 2.0
 		_small_clouds_domain = clouds_resource.small_noise_scale / 2.0
 		
-		clouds_resource.directional_lights_data.clear()
-		clouds_resource.point_lights_data.clear()
-		clouds_resource.point_effector_data.clear()
+		# Arrays built LOCALLY: until they are handed over to the effect, the render
+		# thread keeps seeing the old, complete ones. No empty window.
+		var new_dir_data : Array[Vector4] = []
+		var new_point_data : Array[Vector4] = []
+		var new_effector_data : Array[Vector4] = []
 		
 		if not tracked_directional_light_shadow_steps:
 			tracked_directional_light_shadow_steps = []
@@ -226,26 +257,32 @@ func retrieve_texture_data():
 			if tracked_directional_lights[i] != null:
 				var light = tracked_directional_lights[i]
 				var look_dir = light.global_transform.basis.z.normalized()
-				clouds_resource.directional_lights_data.append(Vector4(look_dir.x, look_dir.y, look_dir.z, tracked_directional_light_shadow_steps[i]))
-				clouds_resource.directional_lights_data.append(Vector4(light.light_color.r, light.light_color.g, light.light_color.b, round(light.light_color.a * light.light_energy * directional_light_power_multiplier * 10.0) / 10.0))
+				new_dir_data.append(Vector4(look_dir.x, look_dir.y, look_dir.z, tracked_directional_light_shadow_steps[i]))
+				new_dir_data.append(Vector4(light.light_color.r, light.light_color.g, light.light_color.b, round(light.light_color.a * light.light_energy * directional_light_power_multiplier * 10.0) / 10.0))
 		
 		for i in range(tracked_point_lights.size()):
 			if tracked_point_lights[i] != null:
 				var light = tracked_point_lights[i]
 				var light_pos = light.global_position
-				clouds_resource.point_lights_data.append(Vector4(light_pos.x, light_pos.y, light_pos.z, light.omni_range))
-				clouds_resource.point_lights_data.append(Vector4(light.light_color.r, light.light_color.g, light.light_color.b, round(light.light_color.a * light.light_energy * point_light_power_multiplier * 10.0) / 10.0))
+				new_point_data.append(Vector4(light_pos.x, light_pos.y, light_pos.z, light.omni_range))
+				new_point_data.append(Vector4(light.light_color.r, light.light_color.g, light.light_color.b, round(light.light_color.a * light.light_energy * point_light_power_multiplier * 10.0) / 10.0))
 		
 		
 		for i in range(tracked_point_effectors.size()):
 			if tracked_point_effectors[i] != null:
 				var node = tracked_point_effectors[i]
 				var node_pos = node.global_position
-				clouds_resource.point_effector_data.append(Vector4(node_pos.x, node_pos.y, node_pos.z, node.Radius))
-				clouds_resource.point_effector_data.append(Vector4(node.Power, 0.0, 0.0, 0.0))
+				new_effector_data.append(Vector4(node_pos.x, node_pos.y, node_pos.z, node.Radius))
+				new_effector_data.append(Vector4(node.Power, 0.0, 0.0, 0.0))
 		
 		
-		clouds_resource.lights_updated = true
+		# Driver-side copies, for _process's comparisons (main thread).
+		_dir_data_cache = new_dir_data.duplicate()
+		_point_data_cache = new_point_data.duplicate()
+		_effector_data_cache = new_effector_data.duplicate()
+
+		# Handed to the effect from the render thread: serialised with _render_callback.
+		RenderingServer.call_on_render_thread(_apply_lights_data.bind(new_dir_data, new_point_data, new_effector_data))
 	
 	_updating_settings = false
 

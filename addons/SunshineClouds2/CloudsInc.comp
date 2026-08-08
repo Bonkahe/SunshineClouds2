@@ -242,6 +242,26 @@ struct SceneData {
 	#endif
 };
 
+// Version-independent camera block. The stock addon read Godot's private
+// SceneData UBO (above), whose byte layout is mirrored per engine version and
+// has no 4.7 entry -> it breaks on 4.7. Instead we pack exactly the fields the
+// clouds shaders use from stable public API (get_cam_transform /
+// get_cam_projection) into our own UBO. Field names match what the shader body
+// already references so the raymarch/reprojection code is unchanged.
+//   inv_projection_matrix    : clip -> view
+//   main_cam_inv_view_matrix : view -> world (camera global transform)
+//   view_matrix              : world -> view
+//   projection_matrix        : view -> clip
+struct CameraData {
+	mat4 inv_projection_matrix;
+	mat4 main_cam_inv_view_matrix;
+	mat4 view_matrix;
+	mat4 projection_matrix;
+	float z_far;
+	float z_near;
+	vec2 _cam_pad;
+};
+
 struct GenericData{
 	vec3 extralargenoiseposition;
 	float extralargenoisescale;

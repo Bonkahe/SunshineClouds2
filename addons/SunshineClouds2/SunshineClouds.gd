@@ -131,6 +131,14 @@ var linear_sampler_no_repeat : RID = RID()
 
 var general_data_buffer : RID = RID()
 var light_data_buffer : RID = RID()
+# Version-independent camera UBO (binding 17 compute / 8 postpass). Two CameraData
+# structs (current + previous frame), each 272 bytes std140 (4 mat4 + z_far/z_near
+# + 2-float pad). See CloudsInc.comp::CameraData.
+const CAMERA_UBO_BYTES : int = 544
+var camera_override_buffer : RID = RID()
+var _prev_cam_transform : Transform3D = Transform3D.IDENTITY
+var _prev_view_proj : Projection = Projection.IDENTITY
+var _has_prev_camera : bool = false
 var point_sample_data_buffer : RID = RID()
 var accumulation_textures : Array[RID] = []
 var resized_depth : RID = RID()
@@ -243,6 +251,10 @@ func clear_compute():
 		if light_data_buffer.is_valid():
 			rd.free_rid(light_data_buffer)
 		light_data_buffer = RID()
+
+		if camera_override_buffer.is_valid():
+			rd.free_rid(camera_override_buffer)
+		camera_override_buffer = RID()
 		
 		if point_sample_data_buffer.is_valid():
 			rd.free_rid(point_sample_data_buffer)
@@ -650,7 +662,13 @@ func _render_callback(effect_callback_type, render_data):
 					point_sample_data_uniform.add_id(point_sample_data_buffer)
 					uniforms_array.append(point_sample_data_uniform)
 					
-					var cameraData = rendersceneData.get_uniform_buffer()
+					# Our own version-independent camera UBO (replaces Godot's private
+					# SceneData UBO, which has no 4.7 byte-layout mirror and delivers a
+					# wrong camera in multi-camera setups). Two CameraData structs
+					# (current + previous frame) = 2 * 272 bytes. Packed each frame in
+					# update_matrices() from get_cam_transform/get_cam_projection.
+					camera_override_buffer = rd.uniform_buffer_create(CAMERA_UBO_BYTES)
+					var cameraData = camera_override_buffer
 					var camera_data_uniform = RDUniform.new()
 					camera_data_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER
 					camera_data_uniform.binding = 17
@@ -1042,6 +1060,70 @@ func update_matrices(camera_tr, view_proj, new_size: Vector2i):
 	
 	# Copy to byte buffer
 	rd.buffer_update(general_data_buffer, 0, general_data.size(), general_data)
+
+	update_camera_data(camera_tr, view_proj)
+
+
+## Packs the version-independent camera UBO (binding 17 / postpass 8) with the
+## current and previous frame's matrices, derived from get_cam_transform() /
+## get_cam_projection() - no dependency on Godot's private SceneData layout.
+## Layout per CameraData (272 bytes, std140), x2 (current, then previous):
+##   [  0] inv_projection_matrix    (mat4, clip->view)
+##   [ 64] main_cam_inv_view_matrix (mat4, view->world = camera transform)
+##   [128] view_matrix              (mat4, world->view)
+##   [192] projection_matrix        (mat4, view->clip)
+##   [256] z_far, z_near, pad, pad
+func update_camera_data(camera_tr : Transform3D, view_proj : Projection):
+	if not camera_override_buffer.is_valid():
+		return
+	# First frame: seed prev = current so reprojection has valid matrices.
+	if not _has_prev_camera:
+		_prev_cam_transform = camera_tr
+		_prev_view_proj = view_proj
+		_has_prev_camera = true
+
+	var bytes : PackedByteArray = []
+	bytes.resize(CAMERA_UBO_BYTES)
+
+	_encode_camera_data(bytes, 0, camera_tr, view_proj)
+	_encode_camera_data(bytes, 272, _prev_cam_transform, _prev_view_proj)
+
+	rd.buffer_update(camera_override_buffer, 0, CAMERA_UBO_BYTES, bytes)
+
+	_prev_cam_transform = camera_tr
+	_prev_view_proj = view_proj
+
+
+## Encode one CameraData block (272 bytes) at byte offset `o`.
+func _encode_camera_data(bytes : PackedByteArray, o : int, cam_tr : Transform3D, proj : Projection):
+	_encode_projection_mat4(bytes, o + 0, proj.inverse())          # inv_projection_matrix
+	_encode_transform_mat4(bytes, o + 64, cam_tr)                  # main_cam_inv_view_matrix (view->world)
+	_encode_transform_mat4(bytes, o + 128, cam_tr.affine_inverse()) # view_matrix (world->view)
+	_encode_projection_mat4(bytes, o + 192, proj)                  # projection_matrix (view->clip)
+	bytes.encode_float(o + 256, proj.get_z_far())
+	bytes.encode_float(o + 260, proj.get_z_near())
+	bytes.encode_float(o + 264, 0.0)
+	bytes.encode_float(o + 268, 0.0)
+
+
+## Encode a Transform3D as a column-major GLSL mat4 (16 floats) at byte offset.
+## Columns 0-2 are the basis axes (image of local x/y/z), column 3 is the origin.
+func _encode_transform_mat4(bytes : PackedByteArray, o : int, t : Transform3D):
+	var b : Basis = t.basis
+	var p : Vector3 = t.origin
+	bytes.encode_float(o + 0,  b.x.x); bytes.encode_float(o + 4,  b.x.y); bytes.encode_float(o + 8,  b.x.z); bytes.encode_float(o + 12, 0.0)
+	bytes.encode_float(o + 16, b.y.x); bytes.encode_float(o + 20, b.y.y); bytes.encode_float(o + 24, b.y.z); bytes.encode_float(o + 28, 0.0)
+	bytes.encode_float(o + 32, b.z.x); bytes.encode_float(o + 36, b.z.y); bytes.encode_float(o + 40, b.z.z); bytes.encode_float(o + 44, 0.0)
+	bytes.encode_float(o + 48, p.x);   bytes.encode_float(o + 52, p.y);   bytes.encode_float(o + 56, p.z);   bytes.encode_float(o + 60, 1.0)
+
+
+## Encode a Projection as a column-major GLSL mat4 (16 floats) at byte offset.
+## Projection.x/.y/.z/.w are the columns.
+func _encode_projection_mat4(bytes : PackedByteArray, o : int, m : Projection):
+	bytes.encode_float(o + 0,  m.x.x); bytes.encode_float(o + 4,  m.x.y); bytes.encode_float(o + 8,  m.x.z); bytes.encode_float(o + 12, m.x.w)
+	bytes.encode_float(o + 16, m.y.x); bytes.encode_float(o + 20, m.y.y); bytes.encode_float(o + 24, m.y.z); bytes.encode_float(o + 28, m.y.w)
+	bytes.encode_float(o + 32, m.z.x); bytes.encode_float(o + 36, m.z.y); bytes.encode_float(o + 40, m.z.z); bytes.encode_float(o + 44, m.z.w)
+	bytes.encode_float(o + 48, m.w.x); bytes.encode_float(o + 52, m.w.y); bytes.encode_float(o + 56, m.w.z); bytes.encode_float(o + 60, m.w.w)
 
 
 func update_lights():
