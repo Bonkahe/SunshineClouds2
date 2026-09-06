@@ -42,8 +42,8 @@ layout(binding = 16, std430) restrict buffer SamplePointsBuffer {
 
 
 layout(binding = 17, std140) uniform SceneDataBlock {
-	SceneData data;
-	SceneData prev_data;
+	CameraData data;
+	CameraData prev_data;
 } scene_data_block;
 
 // Our push constant
@@ -428,9 +428,13 @@ void main() {
 	vec4 view = scene_data_block.data.inv_projection_matrix * vec4(depthUV*2.0-1.0,depth,1.0);
 	view.xyz /= view.w;
 	float linear_depth = length(view); //used to calculate depth based on the view angle, idk just works.
-	//4.4 doesn't work with this
-	if (linear_depth >= scene_data_block.data.z_far){ 
-		linear_depth *= 100.0;
+	// Sky/far pixels: Godot uses reverse-Z, so cleared sky reads depth == 0.
+	// Push the ray's max distance far past the camera far plane so distant clouds
+	// still draw. (The stock test compared length(view) >= z_far, which is
+	// marginal exactly at screen center where the forward ray length ~= z_far,
+	// carving an oval hole of missing sky/fog there.)
+	if (depth <= 0.0){
+		linear_depth = 1e9;
 	}
 	
 	// Convert screen coordinates to normalized device coordinates
@@ -871,39 +875,26 @@ void main() {
 	//accumulation preperation:
 	float finalDensityDistance = min(traveledDistance, highestDensityDistance);
 	vec3 worldFinalPos = rayOrigin + raydirection * traveledDistance;
+	// Camera movement this frame (used only by the accumulation-break heuristic
+	// below, via travelspeed). We do NOT add this to worldFinalPos: that
+	// camera-relative term compensated for Godot's internal camera-relative
+	// rendering, but our matrices are absolute world-space, so adding it cancels
+	// parallax and screen-locks the accumulated image to the camera.
 	vec3 delta = rayOrigin - scene_data_block.prev_data.main_cam_inv_view_matrix[3].xyz;
-	worldFinalPos += delta;
-	
+
 	vec4 reprojectedScreenPos = vec4(0.0);
 
-	#if ((GODOT_VERSION_MAJOR == 4) && (GODOT_VERSION_MINOR == 4)) || ((GODOT_VERSION_MAJOR == 4) && (GODOT_VERSION_MINOR == 5))
+	// Standard absolute reprojection: world -> prev view -> prev clip, using our
+	// own reliable prev-frame matrices (world->view is a real mat4 here, so no
+	// version-specific mat3x4 transpose needed).
+	vec4 reprojectedClipPos = scene_data_block.prev_data.view_matrix * vec4(worldFinalPos, 1.0);
 
-		//Prevview is already actually the inv_view (due to the way retrieving the transform works), so inversing it here is making it the equalivant of View_Matrix.
-		vec4 reprojectedClipPos = scene_data_block.prev_data.view_matrix * vec4(worldFinalPos, 1.0);
-		
-		reprojectedClipPos.z -= 0.01;
-		if (reprojectedClipPos.z > 0.0){
-			override = true;
-		}
-		
-		reprojectedScreenPos = scene_data_block.prev_data.projection_matrix * reprojectedClipPos;
-	#else
-		mat4 view_matrix = transpose(mat4(
-			scene_data_block.prev_data.view_matrix[0], 
-			scene_data_block.prev_data.view_matrix[1], 
-			scene_data_block.prev_data.view_matrix[2], 
-			vec4(0.0, 0.0, 0.0, 1.0)));
+	reprojectedClipPos.z -= 0.01;
+	if (reprojectedClipPos.z > 0.0){
+		override = true;
+	}
 
-		//Prevview is already actually the inv_view (due to the way retrieving the transform works), so inversing it here is making it the equalivant of View_Matrix.
-		vec4 reprojectedClipPos = view_matrix * vec4(worldFinalPos, 1.0);
-		
-		reprojectedClipPos.z -= 0.01;
-		if (reprojectedClipPos.z > 0.0){
-			override = true;
-		}
-		
-		reprojectedScreenPos = scene_data_block.prev_data.projection_matrix * reprojectedClipPos;
-	#endif
+	reprojectedScreenPos = scene_data_block.prev_data.projection_matrix * reprojectedClipPos;
 
 	// Convert clip space to normalized device coordinates
 	ndc = (reprojectedScreenPos.xy / reprojectedScreenPos.w);

@@ -22,8 +22,8 @@ layout(binding = 7) uniform LightsBuffer {
 };
 
 layout(binding = 8, std140) uniform SceneDataBlock {
-	SceneData data;
-	SceneData prev_data;
+	CameraData data;
+	CameraData prev_data;
 } scene_data_block;
 
 
@@ -321,8 +321,10 @@ void main() {
 		vec4 view = scene_data_block.data.inv_projection_matrix * vec4(depthUV*2.0-1.0,depth,1.0);
 		view.xyz /= view.w;
 		float linear_depth = length(view); //used to calculate depth based on the view angle, idk just works.
-		if (linear_depth >= scene_data_block.data.z_far){ 
-			linear_depth *= 100.0;
+		// Reverse-Z sky test (see main compute shader) - robust across the whole
+		// screen, unlike the marginal length(view) >= z_far comparison.
+		if (depth <= 0.0){
+			linear_depth = 1e9;
 		}
 		float density = clamp(currentAccumilation.a, 0.0, 1.0);
 
