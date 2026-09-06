@@ -8,8 +8,10 @@
 #define SCENE_DATA_FLAGS_IN_SHADOW_PASS (1 << 7)
 #define MAX_VIEWS 2
 
+#define DATA_DISTANCE_MAX 60000.0
+
 #define GODOT_VERSION_MAJOR 4
-#define GODOT_VERSION_MINOR 6
+#define GODOT_VERSION_MINOR 7
 
 #ifndef MSAA_ENABLED
 	#define MSAA_ENABLED 0
@@ -29,30 +31,25 @@
 	#define textureSamplesMSAA(sampler_)               textureSamples(sampler_)
 	#define texelFetchMSAA(sampler_, P_, sample_)      texelFetch(sampler_, P_, sample_)
 	#define imageStoreMSAA(image_, P_, sample_, data_) imageStore(image_, P_, sample_, data_)
-#endif // !MSAA_ENABLED
-
+#endif
 
 struct SceneData {
 	#if (GODOT_VERSION_MAJOR == 4) && (GODOT_VERSION_MINOR == 4)
 
-		// godot version 4.4
 		highp mat4 projection_matrix;
 		highp mat4 inv_projection_matrix;
 		highp mat4 inv_view_matrix;
 		highp mat4 view_matrix;
 
-		// only used for multiview
 		highp mat4 projection_matrix_view[MAX_VIEWS];
 		highp mat4 inv_projection_matrix_view[MAX_VIEWS];
 		highp vec4 eye_offset[MAX_VIEWS];
 
-		// Used for billboards to cast correct shadows.
 		highp mat4 main_cam_inv_view_matrix;
 
 		highp vec2 viewport_size;
 		highp vec2 screen_pixel_size;
 
-		// Use vec4s because std140 doesn't play nice with vec2s, z and w are wasted.
 		highp vec4 directional_penumbra_shadow_kernel[32];
 		highp vec4 directional_soft_shadow_kernel[32];
 		highp vec4 penumbra_shadow_kernel[32];
@@ -96,7 +93,7 @@ struct SceneData {
 		mediump float fog_sun_scatter;
 		mediump float fog_aerial_perspective;
 		highp float time;
-		mediump float reflection_multiplier; // one normally, zero when rendering reflections
+		mediump float reflection_multiplier;
 
 		vec2 taa_jitter;
 		bool material_uv2_mode;
@@ -108,24 +105,20 @@ struct SceneData {
 		float pass_alpha_multiplier;
 
 	#elif (GODOT_VERSION_MAJOR == 4) && (GODOT_VERSION_MINOR == 5)
-		/* 4.5 definition */
 		mat4 projection_matrix;
 		mat4 inv_projection_matrix;
 		mat4 inv_view_matrix;
 		mat4 view_matrix;
 
-		// only used for multiview
 		mat4 projection_matrix_view[MAX_VIEWS];
 		mat4 inv_projection_matrix_view[MAX_VIEWS];
 		vec4 eye_offset[MAX_VIEWS];
 
-		// Used for billboards to cast correct shadows.
 		mat4 main_cam_inv_view_matrix;
 
 		vec2 viewport_size;
 		vec2 screen_pixel_size;
 
-		// Use vec4s because std140 doesn't play nice with vec2s, z and w are wasted.
 		vec4 directional_penumbra_shadow_kernel[32];
 		vec4 directional_soft_shadow_kernel[32];
 		vec4 penumbra_shadow_kernel[32];
@@ -170,7 +163,6 @@ struct SceneData {
 		uint camera_visible_layers;
 		float pass_alpha_multiplier;
 	#else
-		/* 4.6 definition */
 		mat4 projection_matrix;
 		mat4 inv_projection_matrix;
 		mat3x4 inv_view_matrix;
@@ -180,18 +172,15 @@ struct SceneData {
 		//	vec4 inv_view_precision;
 		//#endif
 
-		// only used for multiview
 		mat4 projection_matrix_view[MAX_VIEWS];
 		mat4 inv_projection_matrix_view[MAX_VIEWS];
 		vec4 eye_offset[MAX_VIEWS];
 
-		// Used for billboards to cast correct shadows.
 		mat4 main_cam_inv_view_matrix;
 
 		vec2 viewport_size;
 		vec2 screen_pixel_size;
 
-		// Use vec4s because std140 doesn't play nice with vec2s, z and w are wasted.
 		vec4 directional_penumbra_shadow_kernel[32];
 		vec4 directional_soft_shadow_kernel[32];
 		vec4 penumbra_shadow_kernel[32];
@@ -242,16 +231,6 @@ struct SceneData {
 	#endif
 };
 
-// Version-independent camera block. The stock addon read Godot's private
-// SceneData UBO (above), whose byte layout is mirrored per engine version and
-// has no 4.7 entry -> it breaks on 4.7. Instead we pack exactly the fields the
-// clouds shaders use from stable public API (get_cam_transform /
-// get_cam_projection) into our own UBO. Field names match what the shader body
-// already references so the raymarch/reprojection code is unchanged.
-//   inv_projection_matrix    : clip -> view
-//   main_cam_inv_view_matrix : view -> world (camera global transform)
-//   view_matrix              : world -> view
-//   projection_matrix        : view -> clip
 struct CameraData {
 	mat4 inv_projection_matrix;
 	mat4 main_cam_inv_view_matrix;
@@ -321,23 +300,160 @@ struct GenericData{
 	float accumilation_decay;
 	float isAccumulationA;
     float resolutionscale;
+
+	float cloud_shadow_steps;
+	float geometry_shadow_strength;
+	float geometry_shadow_sharpness;
+	float geometry_shadow_distance_fade;
 };
 
 struct DirectionalLight {
-	vec4 direction; //w = shadow sample count
-	vec4 color; //a = intensity
+	vec4 direction;
+	vec4 color;
 };
 
 struct PointLight {
-	vec4 position; //w = radius
-	vec4 color; //a = intensity
+	vec4 position;
+	vec4 color;
 };
 
 struct PointEffector {
-	vec3 position; //w = radius
+	vec3 position;
 	float radius;
 
 	float power;
 	float attenuation;
 	vec2 reserved;
 };
+
+#define ATMOSPHERE_PI 3.1415926535
+#define ATMOSPHERE_STEPS 8
+#define ATMOSPHERE_MAX_DISTANCE 150000.0
+#define ATMOSPHERE_RAYLEIGH_SCALE_HEIGHT 8000.0
+#define ATMOSPHERE_MIE_SCALE_HEIGHT 1200.0
+#define ATMOSPHERE_MIE_ALBEDO 0.9
+#define ATMOSPHERE_MIE_G 0.758
+#define ATMOSPHERE_EARTH_RADIUS 6371000.0
+#define ATMOSPHERE_SUN_ANGULAR_COS 0.01
+#define ATMOSPHERE_SUN_INTENSITY 6.0
+
+const vec3 ATMOSPHERE_RAYLEIGH_COEF = vec3(5.802e-6, 13.558e-6, 33.100e-6);
+const float ATMOSPHERE_MIE_COEF = 21.0e-6;
+
+struct AerialPerspective {
+	vec3 inscatter;
+	vec3 transmittance;
+};
+
+float atmosphereChapman(float X, float h, float cosChi){
+	float c = sqrt(X + h);
+	if (cosChi >= 0.0){
+		return c / (c * cosChi + 1.0) * exp(-h);
+	}
+	float x0 = sqrt(max(1.0 - cosChi * cosChi, 0.0)) * (X + h);
+	float c0 = sqrt(x0);
+	return 2.0 * c0 * exp(X - x0) - (c / (1.0 - c * cosChi)) * exp(-h);
+}
+
+float atmosphereHorizonCos(float altitude){
+	float radius = ATMOSPHERE_EARTH_RADIUS + max(altitude, 0.0);
+	return -sqrt(max(1.0 - (ATMOSPHERE_EARTH_RADIUS * ATMOSPHERE_EARTH_RADIUS) / (radius * radius), 0.0));
+}
+
+vec4 atmosphereSunLight(float altitude, float sunCosZenith, float atmosphericDensity){
+	float alt = max(altitude, 0.0);
+	float horizonCos = atmosphereHorizonCos(alt);
+	float visibility = smoothstep(horizonCos - ATMOSPHERE_SUN_ANGULAR_COS, horizonCos + ATMOSPHERE_SUN_ANGULAR_COS, sunCosZenith);
+
+	if (atmosphericDensity <= 0.0){
+		return vec4(1.0, 1.0, 1.0, visibility);
+	}
+
+	float cosChi = max(sunCosZenith, horizonCos);
+	float odR = ATMOSPHERE_RAYLEIGH_SCALE_HEIGHT * atmosphereChapman(
+		ATMOSPHERE_EARTH_RADIUS / ATMOSPHERE_RAYLEIGH_SCALE_HEIGHT,
+		alt / ATMOSPHERE_RAYLEIGH_SCALE_HEIGHT, cosChi);
+	float odM = ATMOSPHERE_MIE_SCALE_HEIGHT * atmosphereChapman(
+		ATMOSPHERE_EARTH_RADIUS / ATMOSPHERE_MIE_SCALE_HEIGHT,
+		alt / ATMOSPHERE_MIE_SCALE_HEIGHT, cosChi);
+
+	vec3 betaR = ATMOSPHERE_RAYLEIGH_COEF * atmosphericDensity;
+	float betaMExtinction = (ATMOSPHERE_MIE_COEF * atmosphericDensity) / ATMOSPHERE_MIE_ALBEDO;
+
+	return vec4(exp(-(betaR * odR + betaMExtinction * odM)), visibility);
+}
+
+AerialPerspective computeAerialPerspective(
+	vec3 origin,
+	vec3 dir,
+	float rayLength,
+	float atmosphericDensity,
+	int lightCount,
+	vec3 sunDirections[4],
+	vec3 sunColors[4],
+	float sunCloudShadows[4],
+	vec3 ambientColor)
+{
+	AerialPerspective result;
+	result.inscatter = vec3(0.0);
+	result.transmittance = vec3(1.0);
+
+	rayLength = min(max(rayLength, 0.0), ATMOSPHERE_MAX_DISTANCE);
+	if (rayLength <= 0.0 || atmosphericDensity <= 0.0){
+		return result;
+	}
+
+	vec3 betaR = ATMOSPHERE_RAYLEIGH_COEF * atmosphericDensity;
+	float betaM = ATMOSPHERE_MIE_COEF * atmosphericDensity;
+	float betaMExtinction = betaM / ATMOSPHERE_MIE_ALBEDO;
+
+	lightCount = min(lightCount, 4);
+
+	float phaseR[4];
+	float phaseM[4];
+	float sunCosZenith[4];
+	float gg = ATMOSPHERE_MIE_G * ATMOSPHERE_MIE_G;
+	for (int l = 0; l < lightCount; l++){
+		float mu = dot(dir, sunDirections[l]);
+		float mumu = mu * mu;
+		phaseR[l] = (3.0 / (16.0 * ATMOSPHERE_PI)) * (1.0 + mumu);
+		phaseM[l] = (3.0 / (8.0 * ATMOSPHERE_PI)) * ((1.0 - gg) * (1.0 + mumu))
+			/ ((2.0 + gg) * pow(max(1.0 + gg - 2.0 * ATMOSPHERE_MIE_G * mu, 1e-4), 1.5));
+		sunCosZenith[l] = sunDirections[l].y;
+	}
+
+	float stepSize = rayLength / float(ATMOSPHERE_STEPS);
+	float opticalDepthR = 0.0;
+	float opticalDepthM = 0.0;
+
+	for (int i = 0; i < ATMOSPHERE_STEPS; i++){
+		vec3 samplePos = origin + dir * ((float(i) + 0.5) * stepSize);
+		float height = max(samplePos.y, 0.0);
+
+		float densityR = exp(-height / ATMOSPHERE_RAYLEIGH_SCALE_HEIGHT) * stepSize;
+		float densityM = exp(-height / ATMOSPHERE_MIE_SCALE_HEIGHT) * stepSize;
+
+		opticalDepthR += densityR;
+		opticalDepthM += densityM;
+
+		vec3 viewTransmittance = exp(-(betaR * opticalDepthR + betaMExtinction * opticalDepthM));
+
+		vec3 stepScatter = ambientColor * (betaR * densityR + betaM * densityM);
+
+		for (int l = 0; l < lightCount; l++){
+			vec4 sunLight = atmosphereSunLight(height, sunCosZenith[l], atmosphericDensity);
+
+			stepScatter += sunColors[l] * sunCloudShadows[l] * sunLight.rgb * sunLight.a
+				* (betaR * densityR * phaseR[l] + betaM * densityM * phaseM[l]);
+		}
+
+		result.inscatter += viewTransmittance * stepScatter;
+	}
+
+	result.transmittance = exp(-(betaR * opticalDepthR + betaMExtinction * opticalDepthM));
+	return result;
+}
+
+float aerialPerspectiveOpacity(AerialPerspective ap){
+	return clamp(1.0 - dot(ap.transmittance, vec3(1.0 / 3.0)), 0.0, 1.0);
+}

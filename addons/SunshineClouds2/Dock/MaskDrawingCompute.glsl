@@ -29,7 +29,7 @@ void main() {
     vec4 current = imageLoad(mask_image, uv);
     float delta = 1.0 - smoothstep(params.brush_sharpness, 1.0, clamp(distance(params.brush_position, uv) / params.brush_radius, 0.0, 1.0));
     switch (int(params.editingtype)) {
-        case 0: //draw weight (alpha channel)
+        case 0:
             if (params.brush_strength > 0.0){
                 current.a = min(current.a + (delta * params.brush_strength), 1.0);
             }
@@ -37,10 +37,10 @@ void main() {
                 current.a = max(current.a - (delta * abs(params.brush_strength)), 0.0);
             }
             break;
-        case 1: //draw color rgb
+        case 1:
             current.rgb = mix(current.rgb, params.brush_value.rgb, delta * params.brush_strength);
             break;
-        case 2: //set value all
+        case 2:
             current = params.brush_value;
             break;
     }

@@ -16,7 +16,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 config/name="SunshineClouds2"
 run/main_scene="uid://c1jy5gwigpsrl"
-config/features=PackedStringArray("4.6", "Forward Plus")
+config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
 [dotnet]
@@ -26,10 +26,6 @@ project/assembly_name="SunshineClouds2"
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/SunshineClouds2/plugin.cfg")
-
-[rendering]
-
-anti_aliasing/quality/msaa_3d=3
 
 [shader_globals]
 

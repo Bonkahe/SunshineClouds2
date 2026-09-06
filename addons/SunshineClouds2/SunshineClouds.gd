@@ -39,6 +39,12 @@ class_name SunshineCloudsGD
 @export var cloud_floor : float = 1500.0
 @export var cloud_ceiling : float = 25000.0
 
+@export_subgroup("Cloud Shadows")
+@export_range(1, 64) var cloud_shadow_steps : int = 32
+@export_range(0, 1) var geometry_shadow_strength : float = 0.6
+@export_range(0.05, 4) var geometry_shadow_sharpness : float = 1.0
+@export_range(0, 20000) var geometry_shadow_distance_fade : float = 2000.0
+
 @export_subgroup("Performance")
 @export var max_step_count : float = 300
 @export var max_lighting_steps : float = 32
@@ -52,7 +58,6 @@ class_name SunshineCloudsGD
 @export_range(0, 2) var lod_bias : float = 1.0
 
 @export_subgroup("Noise Textures")
-@export var dither_noise : Texture3D
 @export var height_gradient : Texture2D
 @export var extra_large_noise_patterns : Texture2D
 @export var large_scale_noise : Texture3D
@@ -183,7 +188,7 @@ func _init():
 	effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_PRE_TRANSPARENT
 	access_resolved_depth = true
 	access_resolved_color = true
-	needs_motion_vectors = true
+	needs_motion_vectors = false
 	RenderingServer.call_on_render_thread(initialize_compute)
 
 func _notification(what):
@@ -310,8 +315,6 @@ func initialize_compute():
 	linear_sampler_state_no_repeat.repeat_w = RenderingDevice.SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE
 	linear_sampler_no_repeat = rd.sampler_create(linear_sampler_state_no_repeat)
 	
-	if not dither_noise:
-		dither_noise = ResourceLoader.load("res://addons/SunshineClouds2/NoiseTextures/bluenoise_Dither.png")
 	if not height_gradient:
 		height_gradient = ResourceLoader.load("res://addons/SunshineClouds2/NoiseTextures/HeightGradient.tres")
 	if not extra_large_noise_patterns:
@@ -446,7 +449,7 @@ func initialize_raster_pipelines(color_texture : RID, depth_texture : RID):
 func _render_callback(effect_callback_type, render_data):
 	if rd == null:
 		initialize_compute()
-	elif pipeline.is_valid() and height_gradient and extra_large_noise_patterns and large_scale_noise and medium_scale_noise and small_scale_noise and dither_noise and curl_noise:
+	elif pipeline.is_valid() and height_gradient and extra_large_noise_patterns and large_scale_noise and medium_scale_noise and small_scale_noise and curl_noise:
 		buffers = render_data.get_render_scene_buffers() as RenderSceneBuffersRD
 		if buffers:
 			msaa_mode = buffers.get_msaa_3d()
@@ -512,7 +515,7 @@ func _render_callback(effect_callback_type, render_data):
 					#reflections
 					accumulation_textures.append(rd.texture_create(base_colorformat, RDTextureView.new(), [blankImageData]))
 					
-					general_data_buffer = rd.uniform_buffer_create(256)
+					general_data_buffer = rd.uniform_buffer_create(272)
 					
 					var depthformat : RDTextureFormat = rd.texture_get_format(depth_image)
 					depthformat.width = new_size.x
@@ -625,12 +628,6 @@ func _render_callback(effect_callback_type, render_data):
 					curl_noise_uniform.add_id(RenderingServer.texture_get_rd_texture(curl_noise.get_rid()))
 					uniforms_array.append(curl_noise_uniform)
 					
-					var dither_noise_uniform = RDUniform.new()
-					dither_noise_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
-					dither_noise_uniform.binding = 12
-					dither_noise_uniform.add_id(nearest_sampler)
-					dither_noise_uniform.add_id(RenderingServer.texture_get_rd_texture(dither_noise.get_rid()))
-					uniforms_array.append(dither_noise_uniform)
 					
 					var height_gradient_uniform = RDUniform.new()
 					height_gradient_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
@@ -857,8 +854,8 @@ func retrieve_position_queries(data : PackedByteArray):
 			#self.effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_PRE_TRANSPARENT
 
 func update_matrices(camera_tr, view_proj, new_size: Vector2i):
-	if general_data.size() != 256: #64 * 4 bytes for each float = 256.
-		general_data.resize(256)
+	if general_data.size() != 272: #68 * 4 bytes for each float = 272.
+		general_data.resize(272)
 	
 	var idx = 0
 	filter_index += 1
@@ -1052,6 +1049,11 @@ func update_matrices(camera_tr, view_proj, new_size: Vector2i):
 		general_data.encode_float(idx, 0.0); idx += 4
 	
 	general_data.encode_float(idx, int(pow(2.0, float(resolution_scale)))); idx += 4
+
+	general_data.encode_float(idx, float(cloud_shadow_steps)); idx += 4
+	general_data.encode_float(idx, geometry_shadow_strength); idx += 4
+	general_data.encode_float(idx, geometry_shadow_sharpness); idx += 4
+	general_data.encode_float(idx, geometry_shadow_distance_fade); idx += 4
 	#
 	#general_data.encode_float(idx, last_size.x); idx += 4
 	#general_data.encode_float(idx, last_size.y); idx += 4
@@ -1136,6 +1138,7 @@ func update_lights():
 		directional_lights_data.append(Vector4(0.5, 1.0, 0.5, 16.0))
 		directional_lights_data.append(Vector4(1.0, 1.0, 1.0, 1.0))
 	
+	#Directional lights are limited to 4
 	var idx = 0
 	for i in range(min(directional_lights_data.size(), 8)):
 		light_data.encode_float(idx, directional_lights_data[i].x)
