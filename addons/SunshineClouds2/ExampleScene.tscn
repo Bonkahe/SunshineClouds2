@@ -43,14 +43,14 @@ needs_normal_roughness = false
 script = ExtResource("10_re0u6")
 clouds_coverage = 0.829
 clouds_density = 1.0
-atmospheric_density = 0.208
+atmospheric_density = 0.461
 lighting_density = 0.383
 clouds_anisotropy = 0.076
 clouds_powder = 1.0
 cloud_ambient_color = Color(0.3637637, 0.39542162, 0.44829726, 1)
 atmosphere_color = Color(0.77403104, 0.8595042, 0.9446787, 1)
 ambient_occlusion_color = Color(0.3885689, 0.19639263, 0.22344458, 1)
-accumulation_decay = 0.9
+accumulation_decay = 0.97
 extra_large_noise_scale = 116136.88
 large_noise_scale = 360686.097
 medium_noise_scale = 22290.912
@@ -63,12 +63,10 @@ wind_swept_range = 0.897
 wind_swept_strength = 885.417
 cloud_floor = 1000.0
 cloud_ceiling = 15000.0
-cloud_shadow_steps = 4
+cloud_shadow_steps = 12
 geometry_shadow_strength = 0.694
-geometry_shadow_sharpness = 0.307
+geometry_shadow_sharpness = 1.649
 geometry_shadow_distance_fade = 4000.0
-max_lighting_steps = 16.0
-resolution_scale = 0
 height_gradient = ExtResource("5_tq3dl")
 extra_large_noise_patterns = ExtResource("4_2j4np")
 large_scale_noise = ExtResource("6_mnubm")
@@ -76,7 +74,7 @@ medium_scale_noise = ExtResource("7_f1cuh")
 small_scale_noise = ExtResource("11_6b1a5")
 curl_noise = ExtResource("2_uu0np")
 dither_speed = 1000.0
-blur_power = 1.0
+blur_power = 0.0
 reflections_globalshaderparam = "Reflections"
 min_step_distance = 100.0
 lighting_travel_distance = 6000.0
@@ -84,8 +82,8 @@ pre_pass_compute_shader = ExtResource("9_penpr")
 compute_shader = ExtResource("1_0jtrb")
 post_pass_compute_shader = ExtResource("7_g0kkk")
 wind_direction = Vector3(2, 0, 2)
-directional_lights_data = Array[Vector4]([Vector4(0.26475894, 0.9605614, -0.084997654, 32), Vector4(1, 1, 1, 1)])
-point_lights_data = Array[Vector4]([Vector4(10743.6, 6693.89, -43458.2, 20000), Vector4(0.76, 0.374933, 0.1824, 11.7)])
+directional_lights_data = Array[Vector4]([Vector4(0.16239657, 0.9766627, -0.14056084, 32), Vector4(1, 1, 1, 1)])
+point_lights_data = Array[Vector4]([Vector4(25854.717, 5333.503, -47016.023, 20000), Vector4(0.76, 0.374933, 0.1824, 11.7)])
 point_effector_data = Array[Vector4]([Vector4(8266.11, -4898.116, -38481.906, 25263.156), Vector4(3.63, 0, 0, 0), Vector4(7401.0215, 4970.841, -38121.527, 16000), Vector4(-8.66, 0, 0, 0)])
 
 [sub_resource type="Compositor" id="Compositor_nuogy"]
@@ -185,7 +183,7 @@ environment = SubResource("Environment_ftegy")
 compositor = SubResource("Compositor_nuogy")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=2088703268]
-transform = Transform3D(0.4430538, -0.85650736, 0.26475912, -0.19945885, 0.1937472, 0.96056163, -0.87402457, -0.4783883, -0.08499828, -8, 2, -2)
+transform = Transform3D(0.4430538, -0.88166296, 0.16239668, -0.19945887, 0.079662606, 0.9766628, -0.87402457, -0.46510494, -0.14056158, -8, 2, -2)
 shadow_enabled = true
 directional_shadow_max_distance = 20000.0
 
@@ -228,7 +226,7 @@ feel free to try turning down the settings."
 font_size = 128
 
 [node name="OmniLight3D" type="OmniLight3D" parent="." unique_id=233026633]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10743.6, 6693.89, -43458.2)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 25854.717, 5333.503, -47016.023)
 light_color = Color(0.76, 0.374933, 0.1824, 1)
 light_energy = 11.685
 omni_range = 20000.0

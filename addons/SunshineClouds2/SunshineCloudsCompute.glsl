@@ -10,6 +10,7 @@
 #define CLOUD_OCCLUSION_MIN_DECAY 0.2
 #define HISTORY_PIXEL_TOLERANCE 1.0
 #define REBUILD_PIXEL_TOLERANCE 2.0
+#define GOLDEN_RATIO_FRACT 0.6180339887498949
 
 #include "./CloudsInc.comp"
 
@@ -269,38 +270,55 @@ float sampleLighting(
 	float coverage, 
 	float smallscalePower, 
 	float curlPower, 
-	float lod)
+	float lod,
+	float ditherOffset)
 	{
 	float density = 0.0;
 	float stepCountFloat = max(float(stepCount) * lod, 2.0);
 	float actualDistance = mix(stepDistance * 4.0, stepDistance, lod);
-	float eachShortStep = actualDistance / (float(stepCount) / stepCountFloat) / stepCountFloat;
-	float traveledDistance = 0.0;
+
 	
+	float marchDistance = actualDistance;
+	if (abs(sunDirection.y) > 0.0001){
+		float slabEdge = sunDirection.y > 0.0 ? cloudceiling : cloudfloor;
+		marchDistance = min(marchDistance, max((slabEdge - worldPosition.y) / sunDirection.y, 0.0));
+	}
+
+	if (marchDistance <= 0.0){
+		return 0.0;
+	}
+
+	float eachShortStep = marchDistance / float(stepCount);
 	float sunUpValue = 1.0 - sunUpWeight;
-	float eachStepWeight = 1.0 / stepCountFloat;
+	
+	float fullSpan = actualDistance - actualDistance / float(stepCount);
+	float weightNormalizer = 1.0 / max(fullSpan, 0.0001);
 
 	float heightGradient = 0.0;
 	float thisDensity = 0.0;
-	float count = 0.0;
+	float segmentStart = eachShortStep;
+
+	
+	float jitterWidth = clamp((stepCountFloat - 2.0) * 0.25, 0.0, 1.0);
+
 	vec3 curPos = worldPosition;
 	for (float i = 0.0; i < stepCountFloat; i++) {
-		traveledDistance = mix(eachShortStep, actualDistance, clamp(quadraticOut(i / stepCountFloat), 0.0, 1.0));
-		curPos = worldPosition + sunDirection * traveledDistance;
+		float segmentEnd = mix(eachShortStep, marchDistance, clamp(quadraticOut((i + 1.0) / stepCountFloat), 0.0, 1.0));
+		float eachStepWeight = (segmentEnd - segmentStart) * weightNormalizer;
 
-		if (density < 1.0 && clamp(curPos.y, cloudfloor, cloudceiling) == curPos.y){
-			heightGradient = remap(curPos.y, cloudfloor, cloudceiling, 0.0, 1.0);
-			
-			heightGradient = clamp(smoothstep(sunUpValue - 0.1, sunUpValue, heightGradient), 0.0, 1.0);
-			float extraLargeShape = texture(extra_large_noise, (curPos.xz - extralargeNoisePos.xz) / extralargenoisescale).a;
+		
+		float stepDither = fract(ditherOffset + i * GOLDEN_RATIO_FRACT);
+		curPos = worldPosition + sunDirection * mix(segmentStart, segmentEnd, mix(0.5, stepDither, jitterWidth));
+		segmentStart = segmentEnd;
 
-			thisDensity = sampleScene(largeNoisePos, mediumNoisePos, smallNoisePos, curPos, cloudceiling, cloudfloor, extraLargeShape, largenoisescale, mediumnoisescale, smallnoisescale, coverage, smallscalePower, curlPower, lod, true) * densityMultiplier * eachStepWeight;
-			// if (thisDensity <= 0.0){
-			// 	break;
-			// }
-			density += mix(1.0, thisDensity, heightGradient);
-		}
-		else{
+		heightGradient = remap(curPos.y, cloudfloor, cloudceiling, 0.0, 1.0);
+		heightGradient = clamp(smoothstep(sunUpValue - 0.1, sunUpValue, heightGradient), 0.0, 1.0);
+		float extraLargeShape = texture(extra_large_noise, (curPos.xz - extralargeNoisePos.xz) / extralargenoisescale).a;
+
+		thisDensity = sampleScene(largeNoisePos, mediumNoisePos, smallNoisePos, curPos, cloudceiling, cloudfloor, extraLargeShape, largenoisescale, mediumnoisescale, smallnoisescale, coverage, smallscalePower, curlPower, lod, true) * densityMultiplier;
+		density += eachStepWeight * mix(1.0, thisDensity, heightGradient);
+
+		if (density >= 1.0){
 			break;
 		}
 	}
@@ -339,7 +357,7 @@ float sampleAO(
 #define CLOUD_SHADOW_STRENGTH 1.0
 #define CLOUD_SHADOW_MAX_SLANT 3.0
 #define CLOUD_SHADOW_LOCAL_DISTANCE 5000.0
-#define GEOMETRY_SHADOW_MAX_CLOUD_DENSITY 0.02
+#define GEOMETRY_SHADOW_CLOUD_HIDE_START 0.95
 
 float cloudSunShadow(
 	vec3 startPos,
@@ -748,7 +766,7 @@ void main() {
 					vec4 sunAtAltitude = mix(directionalLightSunBase[lightI], directionalLightSunTop[lightI], cloudAltitudeBlend);
 					float sunUpWeight = sunAtAltitude.a;
 
-					float densitySample = sampleLighting(directionalLightSteps[lightI], curPos, extralargeNoisePos, largeNoisePos, mediumNoisePos, smallNoisePos, sundir, lightingDensityScale, sunUpWeight, lightingStepDistance, cloudceiling, cloudfloor, extralargenoiseScale, largenoiseScale, mediumnoiseScale, smallnoiseScale, coverage, smallNoiseMultiplier, curlPower, curLod);
+					float densitySample = sampleLighting(directionalLightSteps[lightI], curPos, extralargeNoisePos, largeNoisePos, mediumNoisePos, smallNoisePos, sundir, lightingDensityScale, sunUpWeight, lightingStepDistance, cloudceiling, cloudfloor, extralargenoiseScale, largenoiseScale, mediumnoiseScale, smallnoiseScale, coverage, smallNoiseMultiplier, curlPower, curLod, ditherValue);
 					densitySample = BeersLaw(lightingStepDistance, densitySample * directionalLightPhase[lightI]);
 					//densitySample = Powder(lightingStepDistance, densitySample);
 					float thisStepLightingWeight = (pow(densitySample, lightingSharpness)) * sunUpWeight;
@@ -802,7 +820,7 @@ void main() {
 					if (lightDistanceWeight < pointLights[lightI].position.w){
 						lightToOriginDelta = normalize(lightToOriginDelta);
 						//float densitySample = 1.0 - newdensity;
-						float densitySample = sampleLighting(3, curPos, extralargeNoisePos, largeNoisePos, mediumNoisePos, smallNoisePos, lightToOriginDelta, densityMultiplier, 1.0, min(maxstep, lightDistanceWeight), cloudceiling, cloudfloor, extralargenoiseScale, largenoiseScale, mediumnoiseScale, smallnoiseScale, coverage, smallNoiseMultiplier, curlPower, curLod);
+						float densitySample = sampleLighting(3, curPos, extralargeNoisePos, largeNoisePos, mediumNoisePos, smallNoisePos, lightToOriginDelta, densityMultiplier, 1.0, min(maxstep, lightDistanceWeight), cloudceiling, cloudfloor, extralargenoiseScale, largenoiseScale, mediumnoiseScale, smallnoiseScale, coverage, smallNoiseMultiplier, curlPower, curLod, ditherValue);
 						
 						float henyeygreenstein = pow(HenyeyGreenstein(genericData.data.anisotropy, dot(lightToOriginDelta, raydirection)), anisotropyExponent); 
 						densitySample = BeersLaw(lightDistanceWeight, densitySample * henyeygreenstein);
@@ -878,7 +896,7 @@ void main() {
 	float geometryShadowSharpness = max(genericData.data.geometry_shadow_sharpness, 0.01);
 	float geometryShadowDistance = smoothstep(0.0, max(genericData.data.geometry_shadow_distance_fade, 0.001), linear_depth);
 	float geometryShadow = 0.0;
-	float geometryShadowFade = (1.0 - smoothstep(0.0, GEOMETRY_SHADOW_MAX_CLOUD_DENSITY, density)) * geometryShadowDistance;
+	float geometryShadowFade = (1.0 - smoothstep(GEOMETRY_SHADOW_CLOUD_HIDE_START, 1.0, density)) * geometryShadowDistance;
 	if (geometryShadowStrength > 0.0 && geometryShadowFade > 0.0 && linear_depth < maxTheoreticalStep){
 		vec3 groundPos = rayOrigin + rayDirectionCenter * linear_depth;
 		if (groundPos.y < cloudceiling){
@@ -910,7 +928,10 @@ void main() {
 		}
 	}
 
-	lightColor.a = max(density, geometryShadow);
+	float combinedAlpha = geometryShadow + density * (1.0 - geometryShadow);
+	float cloudAlphaShare = density / max(combinedAlpha, 1e-5);
+	lightColor.rgb *= cloudAlphaShare;
+	lightColor.a = combinedAlpha;
 
 	float visibleDistance = traveledDistance;
 	if (visibleDistanceWeight > 0.0){
@@ -1105,13 +1126,7 @@ void main() {
 		historyConfidence, accumdecay, travelspeed, expectedPrevGeometry, hardReset,
 		currentColorAccumilation, currentDataAccumilation);
 
-	// Where the stored alpha is the fake geometry shadow rather than cloud volume it
-	// sits exactly on the surface, so pin its cloud front/visible distances to the
-	// geometry distance. They are otherwise temporally lagged while the geometry
-	// distance is not, and the post pass reads that gap as cloud sitting behind the
-	// surface and trims the shadow away in an upscale-grid pattern whenever the
-	// camera moves away from what it is looking at.
-	float surfaceShadowWeight = clamp((geometryShadow - density) / max(geometryShadow, 1e-5), 0.0, 1.0);
+	float surfaceShadowWeight = clamp(geometryShadow * (1.0 - density) / max(combinedAlpha, 1e-5), 0.0, 1.0);
 	if (surfaceShadowWeight > 0.0){
 		currentDataAccumilation.r = mix(currentDataAccumilation.r, geometryDistance, surfaceShadowWeight);
 		currentDataAccumilation.b = mix(currentDataAccumilation.b, geometryDistance, surfaceShadowWeight);
