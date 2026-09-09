@@ -981,7 +981,24 @@ void main() {
 	float anchorDistance = clamp(1.0 / max(anchorDisparity, 1.0 / maxTheoreticalStep), minstep, maxTheoreticalStep);
 
 	float focalPixels = 0.5 * float(size.y) * abs(scene_data_block.data.projection_matrix[1][1]);
-	float parallaxPixelScale = length(cameraDelta) * focalPixels;
+
+	// How far a unit of disparity error slides the reprojected sample, in pixels. Scaling
+	// by the raw translation length treats every direction of travel as full parallax, but
+	// a wrong depth only moves the reprojection by the part of the translation that is
+	// perpendicular to the ray: travel straight along a ray and the depth along it does
+	// not change where the sample lands at all. The overestimate is unbounded as the
+	// motion lines up with the view, so flying through a cloud layer drove both agreement
+	// tests below past their pixel tolerance on every tap and every history sample at
+	// once, leaving the raw dithered march as the only surviving source. Resolve the
+	// translation against the ray in the previous camera's basis, and divide by the
+	// off-axis foreshortening the perspective divide applies.
+	vec3 prevViewDelta = mat3(scene_data_block.prev_data.view_matrix) * cameraDelta;
+	vec3 prevViewRay = mat3(scene_data_block.prev_data.view_matrix) * rayDirectionCenter;
+	vec2 parallaxPerpendicular = vec2(
+		prevViewDelta.z * prevViewRay.x - prevViewRay.z * prevViewDelta.x,
+		prevViewDelta.z * prevViewRay.y - prevViewRay.z * prevViewDelta.y);
+	float parallaxPixelScale = length(parallaxPerpendicular)
+		/ max(prevViewRay.z * prevViewRay.z, 0.01) * focalPixels;
 
 	uint tileIndex = gl_LocalInvocationIndex;
 	s_tileColor[tileIndex] = lightColor;
@@ -995,6 +1012,8 @@ void main() {
 	vec4 spatialDistance = vec4(0.0);
 	float spatialWeight = 0.0;
 	float spatialDistanceWeight = 0.0;
+	vec4 wideColor = vec4(0.0);
+	float wideWeight = 0.0;
 	float rebuildFar = REBUILD_PIXEL_TOLERANCE * 3.0;
 
 	vec4 colorMin = vec4(1e30);
@@ -1029,6 +1048,9 @@ void main() {
 			float tapDensityWeight = tapAgreement * clamp(tapColor.a, 0.0, 1.0);
 			spatialDistance += tapDistance * tapDensityWeight;
 			spatialDistanceWeight += tapDensityWeight;
+
+			wideColor += tapColor;
+			wideWeight += 1.0;
 		}
 	}
 
@@ -1037,6 +1059,13 @@ void main() {
 	}
 	else{
 		spatialColor = lightColor;
+	}
+
+	if (wideWeight > 0.0){
+		wideColor /= wideWeight;
+	}
+	else{
+		wideColor = lightColor;
 	}
 
 	if (spatialDistanceWeight > 0.0){
@@ -1116,6 +1145,15 @@ void main() {
 	}
 
 	historyConfidence = max(historyConfidence, historyTrust);
+
+	// Both agreement tests key off the same reprojection estimate, so wherever the history
+	// is rejected the depth weighted neighbourhood has usually collapsed onto the centre
+	// tap too - it is the only tap that agrees with itself exactly. That makes the rebuild
+	// source a single raw march, dither and all. Widen it toward the plain neighbourhood
+	// mean as confidence falls so the fallback is the whole window rather than one sample.
+	// Distances are left on the agreement weighted average to keep occlusion edges sharp.
+	float rebuildWiden = hardReset ? 1.0 : clamp(1.0 - historyConfidence, 0.0, 1.0);
+	spatialColor = mix(spatialColor, wideColor, rebuildWiden);
 
 	currentColorAccumilation = mix(currentColorAccumilation, clamp(currentColorAccumilation, neighborhoodMin, neighborhoodMax), HISTORY_CLAMP_STRENGTH * (1.0 - historyTrust));
 
