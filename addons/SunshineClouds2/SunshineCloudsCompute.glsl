@@ -358,6 +358,7 @@ float sampleAO(
 #define CLOUD_SHADOW_MAX_SLANT 3.0
 #define CLOUD_SHADOW_LOCAL_DISTANCE 5000.0
 #define GEOMETRY_SHADOW_CLOUD_HIDE_START 0.95
+#define GEOMETRY_SHADOW_DISTANCE_PIN_FADE 0.2
 
 float cloudSunShadow(
 	vec3 startPos,
@@ -730,6 +731,8 @@ void main() {
 		
 		if (traveledDistance > linear_depth){
 			depthFade = clamp((linear_depth - (traveledDistance - newStep)) / max(newStep, 0.001), 0.0, 1.0);
+
+			traveledDistance = min(traveledDistance, linear_depth);
 			depthBreak = true;
 		}
 		
@@ -1164,7 +1167,9 @@ void main() {
 		historyConfidence, accumdecay, travelspeed, expectedPrevGeometry, hardReset,
 		currentColorAccumilation, currentDataAccumilation);
 
+
 	float surfaceShadowWeight = clamp(geometryShadow * (1.0 - density) / max(combinedAlpha, 1e-5), 0.0, 1.0);
+	surfaceShadowWeight *= 1.0 - smoothstep(0.0, GEOMETRY_SHADOW_DISTANCE_PIN_FADE, density);
 	if (surfaceShadowWeight > 0.0){
 		currentDataAccumilation.r = mix(currentDataAccumilation.r, geometryDistance, surfaceShadowWeight);
 		currentDataAccumilation.b = mix(currentDataAccumilation.b, geometryDistance, surfaceShadowWeight);
