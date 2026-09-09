@@ -1,6 +1,10 @@
 
 #define PI 3.141592
 
+
+#define ATMOSPHERE_SURFACE_SUN_BLOCK_WIDE 0.766
+#define ATMOSPHERE_SURFACE_SUN_BLOCK_TIGHT 0.990
+
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(binding = 0) uniform sampler2D input_data_image;
@@ -292,11 +296,19 @@ void main() {
 
 		vec3 atmoSunDirections[4];
 		vec3 atmoSunColors[4];
+		
+		float surfacePresent = depth > 0.0 ? 1.0 : 0.0;
+		float cloudShadowProxy = 1.0 - clamp(currentAccumilation.a, 0.0, 1.0);
 		float atmoSunShadows[4] = float[4](1.0, 1.0, 1.0, 1.0);
 		int atmoLightCount = min(int(directionalLightCount), 4);
 		for (int i = 0; i < atmoLightCount; i++){
 			atmoSunDirections[i] = directionalLights[i].direction.xyz;
 			atmoSunColors[i] = directionalLights[i].color.rgb * directionalLights[i].color.a * ATMOSPHERE_SUN_INTENSITY;
+
+			float sunAlign = dot(raydirection, atmoSunDirections[i]);
+			float surfaceBlocksSun = surfacePresent * smoothstep(
+				ATMOSPHERE_SURFACE_SUN_BLOCK_WIDE, ATMOSPHERE_SURFACE_SUN_BLOCK_TIGHT, sunAlign);
+			atmoSunShadows[i] = min(cloudShadowProxy, 1.0 - surfaceBlocksSun);
 		}
 
 		AerialPerspective backgroundAerial = computeAerialPerspective(
