@@ -235,10 +235,10 @@ func retrieve_texture_data():
 		return
 	_updating_settings = true
 	if clouds_resource != null:
-		_extralarge_clouds_domain = clouds_resource.extra_large_noise_scale / 2.0
-		_large_clouds_domain = clouds_resource.large_noise_scale / 2.0
-		_medium_clouds_domain = clouds_resource.medium_noise_scale / 2.0
-		_small_clouds_domain = clouds_resource.small_noise_scale / 2.0
+		_extralarge_clouds_domain = clouds_resource.extra_large_noise_scale
+		_large_clouds_domain = clouds_resource.large_noise_scale
+		_medium_clouds_domain = clouds_resource.medium_noise_scale
+		_small_clouds_domain = clouds_resource.small_noise_scale
 		
 		# Arrays built LOCALLY: until they are handed over to the effect, the render
 		# thread keeps seeing the old, complete ones. No empty window.
