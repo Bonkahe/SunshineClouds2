@@ -438,14 +438,36 @@ AerialPerspective computeAerialPerspective(
 
 		vec3 viewTransmittance = exp(-(betaR * opticalDepthR + betaMExtinction * opticalDepthM));
 
-		vec3 stepScatter = ambientColor * (betaR * densityR + betaM * densityM);
+		vec3 stepScatter = vec3(0.0);
+		float ambientAvailability = 0.0;
 
 		for (int l = 0; l < lightCount; l++){
 			vec4 sunLight = atmosphereSunLight(height, sunCosZenith[l], atmosphericDensity);
+			vec3 sunReaching = sunColors[l] * sunLight.rgb * sunLight.a;
 
-			stepScatter += sunColors[l] * sunCloudShadows[l] * sunLight.rgb * sunLight.a
+			stepScatter += sunReaching * sunCloudShadows[l]
 				* (betaR * densityR * phaseR[l] + betaM * densityM * phaseM[l]);
+
+			// The ambient term below stands in for the multiple scattering this single
+			// scattering march cannot afford, so it has to be gated by the light that
+			// actually reaches this altitude - otherwise the air keeps glowing with the sun
+			// switched off or below the horizon, which is the one thing it cannot do.
+			// Deliberately not gated by sunCloudShadows: light that has bounced its way here
+			// arrives from the whole sky rather than down the one beam a cloud blocks, and
+			// gating it there would print cloud shapes back into the far haze that aerial
+			// perspective is supposed to bury them in.
+			ambientAvailability += dot(sunReaching, vec3(1.0 / 3.0));
 		}
+
+		// sunColors carries ATMOSPHERE_SUN_INTENSITY, so divide it back out and a white light
+		// at energy 1 reads as 1. Clamped because ambientColor is an authored fully-lit
+		// colour, not something to scale past itself - any normally exposed sun pins this at
+		// 1.0 and leaves the daylight look exactly where it was, while dusk and darkness ramp
+		// it down. sunLight.rgb is in there so that ramp is the smooth one: the visibility
+		// term alone snaps off across ATMOSPHERE_SUN_ANGULAR_COS, about a degree of elevation.
+		ambientAvailability = clamp(ambientAvailability / ATMOSPHERE_SUN_INTENSITY, 0.0, 1.0);
+
+		stepScatter += ambientColor * ambientAvailability * (betaR * densityR + betaM * densityM);
 
 		result.inscatter += viewTransmittance * stepScatter;
 	}

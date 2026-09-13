@@ -689,6 +689,11 @@ void main() {
 	float totalLightPower = 0.0;
 	float anisotropyExponent = mix(1.0, 2.0, 1.0 - genericData.data.anisotropy);
 
+	
+	float overheadSunReach = 0.5 * (
+		dot(atmosphereSunLight(cloudfloor, 1.0, atmosphericDensity).rgb, vec3(1.0 / 3.0)) +
+		dot(atmosphereSunLight(cloudceiling, 1.0, atmosphericDensity).rgb, vec3(1.0 / 3.0)));
+
 	for (int lightI = 0; lightI < directionalLightCount; lightI++){
 		if (directionalLights[lightI].color.a > 0.0){
 
@@ -697,7 +702,13 @@ void main() {
 			directionalLightSunTop[lightI] = atmosphereSunLight(cloudceiling, sunCosZenith, atmosphericDensity);
 
 			directionalLightSunUpPower[lightI].r = 0.5 * (directionalLightSunBase[lightI].a + directionalLightSunTop[lightI].a);
-			totalLightPower += directionalLights[lightI].color.a * directionalLightSunUpPower[lightI].r;
+
+			float sunReach = 0.5 * (
+				dot(directionalLightSunBase[lightI].rgb, vec3(1.0 / 3.0)) +
+				dot(directionalLightSunTop[lightI].rgb, vec3(1.0 / 3.0)));
+
+			totalLightPower += directionalLights[lightI].color.a * directionalLightSunUpPower[lightI].r
+				* clamp(sunReach / max(overheadSunReach, 1e-4), 0.0, 1.0);
 
 			directionalLightSunUpPower[lightI].b = dot(directionalLights[lightI].direction.xyz, raydirection);
 		}
