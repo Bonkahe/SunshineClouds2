@@ -360,6 +360,15 @@ float sampleAO(
 #define GEOMETRY_SHADOW_CLOUD_HIDE_START 0.95
 #define GEOMETRY_SHADOW_DISTANCE_PIN_FADE 0.2
 
+#define POWDER_SUN_FADE_OUTER_DEGREES 80.0
+#define POWDER_SUN_FADE_INNER_DEGREES 15.0
+
+float powderSunFacing(float sunViewAlignment)
+{
+	return 1.0 - smoothstep(cos(radians(POWDER_SUN_FADE_OUTER_DEGREES)),
+	                        cos(radians(POWDER_SUN_FADE_INNER_DEGREES)), sunViewAlignment);
+}
+
 float cloudSunShadow(
 	vec3 startPos,
 	vec3 sunDirection,
@@ -675,6 +684,7 @@ void main() {
 	vec4 directionalLightSunBase[4] = vec4[4](vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0));
 	vec4 directionalLightSunTop[4] = vec4[4](vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0));
 	float directionalLightPhase[4] = float[4](0.0, 0.0, 0.0, 0.0);
+	float directionalLightPowderFacing[4] = float[4](0.0, 0.0, 0.0, 0.0);
 	int directionalLightSteps[4] = int[4](0, 0, 0, 0);
 	float totalLightPower = 0.0;
 	float anisotropyExponent = mix(1.0, 2.0, 1.0 - genericData.data.anisotropy);
@@ -693,6 +703,7 @@ void main() {
 		}
 
 		directionalLightPhase[lightI] = pow(HenyeyGreenstein(genericData.data.anisotropy, directionalLightSunUpPower[lightI].b), anisotropyExponent);
+		directionalLightPowderFacing[lightI] = powderSunFacing(directionalLightSunUpPower[lightI].b);
 		directionalLightLinearColor[lightI] = pow(directionalLights[lightI].color.rgb * directionalLights[lightI].color.a, vec3(2.2));
 		directionalLightSteps[lightI] = min(int(directionalLights[lightI].direction.w), lightingStepCount);
 	}
@@ -757,7 +768,9 @@ void main() {
 					initialdistanceSample = traveledDistance;
 				}
 
-				float powderEffect = pow(newdensity, powderExponent);
+	
+				float coverageWeight = newdensity;
+				float powderDarkening = pow(newdensity, powderExponent);
 
 				float lightingWeight = newdensity * clamp(1.0 - density, 0.0, 1.0);
 
@@ -774,7 +787,9 @@ void main() {
 					//densitySample = Powder(lightingStepDistance, densitySample);
 					float thisStepLightingWeight = (pow(densitySample, lightingSharpness)) * sunUpWeight;
 
-					lightColor.rgb += directionalLightLinearColor[lightI] * sunAtAltitude.rgb * pow(thisStepLightingWeight, 2.2) * powderEffect;
+					float lightPowder = coverageWeight * mix(1.0, powderDarkening, directionalLightPowderFacing[lightI]);
+
+					lightColor.rgb += directionalLightLinearColor[lightI] * sunAtAltitude.rgb * pow(thisStepLightingWeight, 2.2) * lightPowder;
 					directionalLightSunUpPower[lightI].g += directionalLights[lightI].color.a * thisStepLightingWeight;
 					// if (thislightingStepCount > 0){
 					// 	float henyeygreenstein =  pow(HenyeyGreenstein(genericData.data.anisotropy, directionalLightSunUpPower[lightI].b), mix(1.0, 2.0, 1.0 - genericData.data.anisotropy)); 
@@ -825,9 +840,11 @@ void main() {
 						//float densitySample = 1.0 - newdensity;
 						float densitySample = sampleLighting(3, curPos, extralargeNoisePos, largeNoisePos, mediumNoisePos, smallNoisePos, lightToOriginDelta, densityMultiplier, 1.0, min(maxstep, lightDistanceWeight), cloudceiling, cloudfloor, extralargenoiseScale, largenoiseScale, mediumnoiseScale, smallnoiseScale, coverage, smallNoiseMultiplier, curlPower, curLod, ditherValue);
 						
-						float henyeygreenstein = pow(HenyeyGreenstein(genericData.data.anisotropy, dot(lightToOriginDelta, raydirection)), anisotropyExponent); 
+						float pointViewAlign = dot(lightToOriginDelta, raydirection);
+						float henyeygreenstein = pow(HenyeyGreenstein(genericData.data.anisotropy, pointViewAlign), anisotropyExponent); 
 						densitySample = BeersLaw(lightDistanceWeight, densitySample * henyeygreenstein);
-						densitySample = mix(densitySample, newdensity, 0.5) * powderEffect;
+						float pointPowderFacing = powderSunFacing(pointViewAlign);
+						densitySample = mix(densitySample, newdensity, 0.5) * coverageWeight * mix(1.0, powderDarkening, pointPowderFacing);
 						lightDistanceWeight = lightDistanceWeight / pointLights[lightI].position.w;
 						lightDistanceWeight = pointLights[lightI].color.a * pow((1.0 - lightDistanceWeight), 2.2) * densitySample;
 
@@ -880,7 +897,9 @@ void main() {
 		
 	}
 
-	density *= clamp(smoothstep(maxstep * stepCount, minstep * stepCount, traveledDistance), 0.0, 1.0);
+	float marchDistanceFade = clamp(smoothstep(maxstep * stepCount, minstep * stepCount, traveledDistance), 0.0, 1.0);
+	density *= marchDistanceFade;
+	lightColor.rgb *= marchDistanceFade;
 
 	if (lightingSamples > 0.0){
 		ambient = clamp(ambient / lightingSamples, 0.0, 1.0);
@@ -893,7 +912,8 @@ void main() {
 
 	vec3 ambientLight = genericData.data.ambientLightColor.rgb * totalLightPower;
 	ambientLight = mix(ambientLight, ambientLight * aobase.rgb, ambient * aobase.a) * paintedColor;
-	lightColor.rgb += ambientLight;
+	float alphaCoverage = clamp(density, 0.0, 1.0);
+	lightColor.rgb += ambientLight * alphaCoverage;
 	// lightColor.rgb = ambientLight + clamp(lightColor.rgb / lightingSamples, vec3(0.0), vec3(1.0));
 	float geometryShadowStrength = genericData.data.geometry_shadow_strength;
 	float geometryShadowSharpness = max(genericData.data.geometry_shadow_sharpness, 0.01);
@@ -932,14 +952,17 @@ void main() {
 	}
 
 	float combinedAlpha = geometryShadow + density * (1.0 - geometryShadow);
-	float cloudAlphaShare = density / max(combinedAlpha, 1e-5);
-	lightColor.rgb *= cloudAlphaShare;
 	lightColor.a = combinedAlpha;
+
+	float geometryDistance = min(linear_depth, maxTheoreticalStep);
 
 	float visibleDistance = traveledDistance;
 	if (visibleDistanceWeight > 0.0){
 		visibleDistance = visibleDistanceSum / visibleDistanceWeight;
 	}
+
+	float shadowShare = geometryShadow * (1.0 - density);
+	float occluderDistance = mix(visibleDistance, geometryDistance, clamp(shadowShare / max(combinedAlpha, 1e-5), 0.0, 1.0));
 
 	vec3 atmoSunDirections[4];
 	vec3 atmoSunColors[4];
@@ -958,19 +981,17 @@ void main() {
 	}
 
 	AerialPerspective cloudAerial = computeAerialPerspective(
-		rayOrigin, raydirection, visibleDistance, atmosphericDensity,
+		rayOrigin, raydirection, occluderDistance, atmosphericDensity,
 		atmoLightCount, atmoSunDirections, atmoSunColors, atmoSunShadows, ambientfogdistancecolor);
 
-	vec3 physicalFogColor = lightColor.rgb * cloudAerial.transmittance + cloudAerial.inscatter;
+	vec3 physicalFogColor = lightColor.rgb * cloudAerial.transmittance + cloudAerial.inscatter * combinedAlpha;
 	float fogweight = aerialPerspectiveOpacity(cloudAerial);
 
-	lightColor.rgb = mix(physicalFogColor, mix(lightColor.rgb, ambientfogdistancecolor, fogweight),  genericData.data.atmosphere_simple_blend);
+	lightColor.rgb = mix(physicalFogColor, mix(lightColor.rgb, ambientfogdistancecolor * combinedAlpha, fogweight),  genericData.data.atmosphere_simple_blend);
 
 	if (initialdistanceSample <= 0.0){
 		initialdistanceSample = maxTheoreticalStep;
 	}
-
-	float geometryDistance = min(linear_depth, maxTheoreticalStep);
 
 	vec3 cameraDelta = rayOrigin - scene_data_block.prev_data.main_cam_inv_view_matrix[3].xyz;
 	float travelspeed = length(cameraDelta) + maxstep;
@@ -985,16 +1006,6 @@ void main() {
 
 	float focalPixels = 0.5 * float(size.y) * abs(scene_data_block.data.projection_matrix[1][1]);
 
-	// How far a unit of disparity error slides the reprojected sample, in pixels. Scaling
-	// by the raw translation length treats every direction of travel as full parallax, but
-	// a wrong depth only moves the reprojection by the part of the translation that is
-	// perpendicular to the ray: travel straight along a ray and the depth along it does
-	// not change where the sample lands at all. The overestimate is unbounded as the
-	// motion lines up with the view, so flying through a cloud layer drove both agreement
-	// tests below past their pixel tolerance on every tap and every history sample at
-	// once, leaving the raw dithered march as the only surviving source. Resolve the
-	// translation against the ray in the previous camera's basis, and divide by the
-	// off-axis foreshortening the perspective divide applies.
 	vec3 prevViewDelta = mat3(scene_data_block.prev_data.view_matrix) * cameraDelta;
 	vec3 prevViewRay = mat3(scene_data_block.prev_data.view_matrix) * rayDirectionCenter;
 	vec2 parallaxPerpendicular = vec2(
@@ -1028,9 +1039,7 @@ void main() {
 	for (int ny = -1; ny <= 1; ny++){
 		for (int nx = -1; nx <= 1; nx++){
 			ivec2 tapLocal = windowCenter + ivec2(nx, ny);
-			// The tile only holds this workgroup, so drop taps that fall outside it.
-			// Clamping the window instead would shift it by a pixel along every tile
-			// border and stamp an 8x8 grid into the spatial filter.
+
 			if (any(lessThan(tapLocal, ivec2(0))) || any(greaterThan(tapLocal, ivec2(7)))){
 				continue;
 			}
@@ -1149,12 +1158,6 @@ void main() {
 
 	historyConfidence = max(historyConfidence, historyTrust);
 
-	// Both agreement tests key off the same reprojection estimate, so wherever the history
-	// is rejected the depth weighted neighbourhood has usually collapsed onto the centre
-	// tap too - it is the only tap that agrees with itself exactly. That makes the rebuild
-	// source a single raw march, dither and all. Widen it toward the plain neighbourhood
-	// mean as confidence falls so the fallback is the whole window rather than one sample.
-	// Distances are left on the agreement weighted average to keep occlusion edges sharp.
 	float rebuildWiden = hardReset ? 1.0 : clamp(1.0 - historyConfidence, 0.0, 1.0);
 	spatialColor = mix(spatialColor, wideColor, rebuildWiden);
 

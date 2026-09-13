@@ -284,6 +284,7 @@ void main() {
 			lerp = clamp((occludedTo - occludedFrom) / (cloudBack - cloudFront), 0.0, 1.0);
 		}
 
+		vec3 cloudPremultiplied = currentAccumilation.rgb * (1.0 - lerp);
 		density = mix(density, 0.0, lerp);
 		float skyFade = smoothstep(maxTheoreticalStep - max(maxstep, 1.0), maxTheoreticalStep, linear_depth);
 		float groundLinearFade = mix(skyFade, 1.0, genericData.data.fogEffectGround);
@@ -323,7 +324,7 @@ void main() {
 
 		color.rgb = mix(physicalFogColor, mix(color.rgb, ambientfogdistancecolor, fogweight),  genericData.data.atmosphere_simple_blend);
 
-		color.rgb = mix(color.rgb, currentAccumilation.rgb, density);
+		color.rgb = color.rgb * (1.0 - density) + cloudPremultiplied;
 		// color.rgb = vec3(clamp(traveledDistance / maxTheoreticalStep, 0.0, 1.0));
 
 		if (debugCollisions){
