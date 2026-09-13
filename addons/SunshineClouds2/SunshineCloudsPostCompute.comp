@@ -5,6 +5,12 @@
 #define ATMOSPHERE_SURFACE_SUN_BLOCK_WIDE 0.766
 #define ATMOSPHERE_SURFACE_SUN_BLOCK_TIGHT 0.990
 
+// How far two MSAA samples of one pixel may differ in view distance before they
+// each need their own aerial perspective solve. The scattering integral varies on
+// the scale of the atmosphere's 8km scale height, so 0.5% of the view distance is
+// far below anything that survives the MSAA resolve.
+#define AERIAL_REUSE_TOLERANCE 0.005
+
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(binding = 0) uniform sampler2D input_data_image;
@@ -255,6 +261,27 @@ void main() {
 
 	vec4 averageColor = vec4(0.0);
 
+
+	vec3 ambientfogdistancecolor = genericData.data.ambientfogdistancecolor.rgb * genericData.data.ambientfogdistancecolor.a;
+	float atmosphericDensity = genericData.data.atmospheric_density;
+	int atmoLightCount = min(int(genericData.data.directionalLightsCount), 4);
+	float cloudShadowProxy = 1.0 - clamp(currentAccumilation.a, 0.0, 1.0);
+
+	vec3 atmoSunDirections[4];
+	vec3 atmoSunColors[4];
+	float atmoSunBlock[4] = float[4](0.0, 0.0, 0.0, 0.0);
+	for (int i = 0; i < atmoLightCount; i++){
+		atmoSunDirections[i] = directionalLights[i].direction.xyz;
+		atmoSunColors[i] = directionalLights[i].color.rgb * directionalLights[i].color.a * ATMOSPHERE_SUN_INTENSITY;
+		atmoSunBlock[i] = smoothstep(ATMOSPHERE_SURFACE_SUN_BLOCK_WIDE, ATMOSPHERE_SURFACE_SUN_BLOCK_TIGHT,
+			dot(raydirection, atmoSunDirections[i]));
+	}
+
+
+	AerialPerspective cachedAerial;
+	float cachedDepth = -1.0;
+	float cachedSurface = -1.0;
+
 	for (int sampleIdx = 0; sampleIdx < textureSamplesMSAA(depth_image); ++sampleIdx) {
 		float depth = texelFetchMSAA(depth_image, uv, sampleIdx).r;
 		vec4 view = scene_data_block.data.inv_projection_matrix * vec4(depthUV*2.0-1.0,depth,1.0);
@@ -291,30 +318,24 @@ void main() {
 
 		vec4 color = texelFetchMSAA(input_screen_image, uv, sampleIdx);
 
-		vec3 ambientfogdistancecolor = genericData.data.ambientfogdistancecolor.rgb * genericData.data.ambientfogdistancecolor.a;
-		float atmosphericDensity = genericData.data.atmospheric_density;
-		float directionalLightCount = genericData.data.directionalLightsCount;
-
-		vec3 atmoSunDirections[4];
-		vec3 atmoSunColors[4];
-		
 		float surfacePresent = depth > 0.0 ? 1.0 : 0.0;
-		float cloudShadowProxy = 1.0 - clamp(currentAccumilation.a, 0.0, 1.0);
-		float atmoSunShadows[4] = float[4](1.0, 1.0, 1.0, 1.0);
-		int atmoLightCount = min(int(directionalLightCount), 4);
-		for (int i = 0; i < atmoLightCount; i++){
-			atmoSunDirections[i] = directionalLights[i].direction.xyz;
-			atmoSunColors[i] = directionalLights[i].color.rgb * directionalLights[i].color.a * ATMOSPHERE_SUN_INTENSITY;
 
-			float sunAlign = dot(raydirection, atmoSunDirections[i]);
-			float surfaceBlocksSun = surfacePresent * smoothstep(
-				ATMOSPHERE_SURFACE_SUN_BLOCK_WIDE, ATMOSPHERE_SURFACE_SUN_BLOCK_TIGHT, sunAlign);
-			atmoSunShadows[i] = min(cloudShadowProxy, 1.0 - surfaceBlocksSun);
+		if (cachedDepth < 0.0 || surfacePresent != cachedSurface
+			|| abs(linear_depth - cachedDepth) > cachedDepth * AERIAL_REUSE_TOLERANCE){
+
+			float atmoSunShadows[4] = float[4](1.0, 1.0, 1.0, 1.0);
+			for (int i = 0; i < atmoLightCount; i++){
+				atmoSunShadows[i] = min(cloudShadowProxy, 1.0 - surfacePresent * atmoSunBlock[i]);
+			}
+
+			cachedAerial = computeAerialPerspective(
+				rayOrigin, raydirection, linear_depth, atmosphericDensity,
+				atmoLightCount, atmoSunDirections, atmoSunColors, atmoSunShadows, ambientfogdistancecolor);
+			cachedDepth = linear_depth;
+			cachedSurface = surfacePresent;
 		}
 
-		AerialPerspective backgroundAerial = computeAerialPerspective(
-			rayOrigin, raydirection, linear_depth, atmosphericDensity,
-			atmoLightCount, atmoSunDirections, atmoSunColors, atmoSunShadows, ambientfogdistancecolor);
+		AerialPerspective backgroundAerial = cachedAerial;
 
 		vec3 fogTransmittance = mix(vec3(1.0), backgroundAerial.transmittance, groundLinearFade);
 		vec3 fogInscatter = backgroundAerial.inscatter * groundLinearFade;

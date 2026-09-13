@@ -163,13 +163,17 @@ float sampleScene(
 	bool ambientsample)
 	{
 	float clampedWorldHeight = remap(worldPosition.y, cloudfloor, cloudceiling, 0.0, 1.0);
-	vec4 gradientSample = texture(heightmask, vec2(clampedWorldHeight, 0.5)).rgba;
-	
+
 	float edgeFade = min(smoothstep(0.0, 0.1, clampedWorldHeight), smoothstep(1.0, 0.9, clampedWorldHeight));
 
 	if (edgeFade <= 0.0){
 		return 0.0;
 	}
+
+	// Sampled after the early out, not before it: edgeFade is pure arithmetic and
+	// decides this on its own, so samples outside the deck no longer pay for a
+	// texture fetch they are about to throw away.
+	vec4 gradientSample = texture(heightmask, vec2(clampedWorldHeight, 0.5)).rgba;
 
 	float extraLargeShape = extralargeNoiseValue * gradientSample.b;
 
@@ -311,11 +315,17 @@ float sampleLighting(
 		curPos = worldPosition + sunDirection * mix(segmentStart, segmentEnd, mix(0.5, stepDither, jitterWidth));
 		segmentStart = segmentEnd;
 
-		heightGradient = remap(curPos.y, cloudfloor, cloudceiling, 0.0, 1.0);
-		heightGradient = clamp(smoothstep(sunUpValue - 0.1, sunUpValue, heightGradient), 0.0, 1.0);
-		float extraLargeShape = texture(extra_large_noise, (curPos.xz - extralargeNoisePos.xz) / extralargenoisescale).a;
+		float normalizedHeight = remap(curPos.y, cloudfloor, cloudceiling, 0.0, 1.0);
+		heightGradient = clamp(smoothstep(sunUpValue - 0.1, sunUpValue, normalizedHeight), 0.0, 1.0);
 
-		thisDensity = sampleScene(largeNoisePos, mediumNoisePos, smallNoisePos, curPos, cloudceiling, cloudfloor, extraLargeShape, largenoisescale, mediumnoisescale, smallnoisescale, coverage, smallscalePower, curlPower, lod, true) * densityMultiplier;
+		// A step outside the deck contributes a density of exactly zero, but it still
+		// carries its step weight into the sum below. Skipping just the sampling keeps
+		// the result identical while dropping up to five texture fetches.
+		thisDensity = 0.0;
+		if (min(smoothstep(0.0, 0.1, normalizedHeight), smoothstep(1.0, 0.9, normalizedHeight)) > 0.0){
+			float extraLargeShape = texture(extra_large_noise, (curPos.xz - extralargeNoisePos.xz) / extralargenoisescale).a;
+			thisDensity = sampleScene(largeNoisePos, mediumNoisePos, smallNoisePos, curPos, cloudceiling, cloudfloor, extraLargeShape, largenoisescale, mediumnoisescale, smallnoisescale, coverage, smallscalePower, curlPower, lod, true) * densityMultiplier;
+		}
 		density += eachStepWeight * mix(1.0, thisDensity, heightGradient);
 
 		if (density >= 1.0){
@@ -412,6 +422,10 @@ float cloudSunShadow(
 
 	for (int i = 0; i < shadowSteps; i++){
 		vec3 curPos = startPos + sunDirection * (enterDistance + (float(i) + ditherOffset) * stepSize);
+		float normalizedHeight = remap(curPos.y, cloudfloor, cloudceiling, 0.0, 1.0);
+		if (min(smoothstep(0.0, 0.1, normalizedHeight), smoothstep(1.0, 0.9, normalizedHeight)) <= 0.0){
+			continue;
+		}
 		float maskSample = texture(extra_large_noise, (curPos.xz - extralargeNoisePos.xz) / extralargenoisescale).a;
 		float sampled = sampleScene(largeNoisePos, mediumNoisePos, smallNoisePos, curPos, cloudceiling, cloudfloor, maskSample, largenoisescale, mediumnoisescale, smallnoisescale, coverage, smallscalePower, curlPower, 1.0, true);
 		opticalDepth += pow(max(sampled * densityMultiplier, 0.0), sharpness);
@@ -727,7 +741,6 @@ void main() {
 	float initialdistanceSample = 0.0;
 
 	float lightingSamples = 0.0;
-	float atmoSamples = 0.0;
 
 	float density = 0.0;
 	float ambient = 0.0;
@@ -760,12 +773,11 @@ void main() {
 		
 		curPos = rayOrigin + raydirection * traveledDistance;
 		
-		vec4 maskSample = texture(extra_large_noise, (curPos.xz - extralargeNoisePos.xz) / extralargenoiseScale);
-		//ceilingSample = mix(halfCeiling, cloudceiling, maskSample.a);
-		//ceilingSample = cloudceiling;
-		
-		atmoSamples += 1.0;
 		if (clamp(curPos.y, cloudfloor, cloudceiling) == curPos.y){
+			// Only read inside the deck. Every step above or below it used to fetch
+			// this and discard it, which on a ray that approaches the deck at a
+			// shallow angle is most of the march.
+			vec4 maskSample = texture(extra_large_noise, (curPos.xz - extralargeNoisePos.xz) / extralargenoiseScale);
 
 			curLod = 1.0 - clamp(traveledDistance / lodMaxDistance, 0.0, 1.0);
 			// newdensity = sampleSceneCoarse(largeNoisePos, curPos, cloudceiling, cloudfloor, maskSample.a, largenoiseScale, coverage, curLod);
@@ -975,30 +987,36 @@ void main() {
 	float shadowShare = geometryShadow * (1.0 - density);
 	float occluderDistance = mix(visibleDistance, geometryDistance, clamp(shadowShare / max(combinedAlpha, 1e-5), 0.0, 1.0));
 
-	vec3 atmoSunDirections[4];
-	vec3 atmoSunColors[4];
-	float atmoSunShadows[4] = float[4](1.0, 1.0, 1.0, 1.0);
-	int atmoLightCount = min(directionalLightCount, 4);
-	vec3 atmoShadowOrigin = rayOrigin + raydirection * min(visibleDistance * 0.5, CLOUD_SHADOW_LOCAL_DISTANCE);
-	for (int i = 0; i < atmoLightCount; i++){
-		atmoSunDirections[i] = directionalLights[i].direction.xyz;
-		atmoSunColors[i] = directionalLights[i].color.rgb * directionalLights[i].color.a * ATMOSPHERE_SUN_INTENSITY;
-		atmoSunShadows[i] = cloudSunShadow(
-			atmoShadowOrigin, atmoSunDirections[i],
-			extralargeNoisePos, largeNoisePos, mediumNoisePos, smallNoisePos,
-			extralargenoiseScale, largenoiseScale, mediumnoiseScale, smallnoiseScale,
-			cloudfloor, cloudceiling, coverage, smallNoiseMultiplier, curlPower,
-			densityMultiplier, sharpness, maxstep, ditherValue);
+
+	if (combinedAlpha > 0.0 || dot(lightColor.rgb, vec3(1.0)) > 0.0){
+		vec3 atmoSunDirections[4];
+		vec3 atmoSunColors[4];
+		float atmoSunShadows[4] = float[4](1.0, 1.0, 1.0, 1.0);
+		int atmoLightCount = min(directionalLightCount, 4);
+		vec3 atmoShadowOrigin = rayOrigin + raydirection * min(visibleDistance * 0.5, CLOUD_SHADOW_LOCAL_DISTANCE);
+		for (int i = 0; i < atmoLightCount; i++){
+			atmoSunDirections[i] = directionalLights[i].direction.xyz;
+			atmoSunColors[i] = directionalLights[i].color.rgb * directionalLights[i].color.a * ATMOSPHERE_SUN_INTENSITY;
+			atmoSunShadows[i] = cloudSunShadow(
+				atmoShadowOrigin, atmoSunDirections[i],
+				extralargeNoisePos, largeNoisePos, mediumNoisePos, smallNoisePos,
+				extralargenoiseScale, largenoiseScale, mediumnoiseScale, smallnoiseScale,
+				cloudfloor, cloudceiling, coverage, smallNoiseMultiplier, curlPower,
+				densityMultiplier, sharpness, maxstep, ditherValue);
+		}
+
+		AerialPerspective cloudAerial = computeAerialPerspective(
+			rayOrigin, raydirection, occluderDistance, atmosphericDensity,
+			atmoLightCount, atmoSunDirections, atmoSunColors, atmoSunShadows, ambientfogdistancecolor);
+
+		vec3 physicalFogColor = lightColor.rgb * cloudAerial.transmittance + cloudAerial.inscatter * combinedAlpha;
+		float fogweight = aerialPerspectiveOpacity(cloudAerial);
+
+		lightColor.rgb = mix(physicalFogColor, mix(lightColor.rgb, ambientfogdistancecolor * combinedAlpha, fogweight),  genericData.data.atmosphere_simple_blend);
 	}
-
-	AerialPerspective cloudAerial = computeAerialPerspective(
-		rayOrigin, raydirection, occluderDistance, atmosphericDensity,
-		atmoLightCount, atmoSunDirections, atmoSunColors, atmoSunShadows, ambientfogdistancecolor);
-
-	vec3 physicalFogColor = lightColor.rgb * cloudAerial.transmittance + cloudAerial.inscatter * combinedAlpha;
-	float fogweight = aerialPerspectiveOpacity(cloudAerial);
-
-	lightColor.rgb = mix(physicalFogColor, mix(lightColor.rgb, ambientfogdistancecolor * combinedAlpha, fogweight),  genericData.data.atmosphere_simple_blend);
+	else{
+		lightColor.rgb = vec3(0.0);
+	}
 
 	if (initialdistanceSample <= 0.0){
 		initialdistanceSample = maxTheoreticalStep;
