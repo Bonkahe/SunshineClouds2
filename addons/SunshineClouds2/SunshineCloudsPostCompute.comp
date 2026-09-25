@@ -21,6 +21,10 @@
 #define UPSAMPLE_MAX_RELATIVE 4.0
 // Lets a well-matched tap take over even where its bilinear weight is ~0.
 #define UPSAMPLE_BILINEAR_FLOOR 0.001
+// Pixels of this pixel's own depth slope forgiven per prepass window pixel. The
+// prepass keeps the farthest depth of a (2 * scale)-wide window, so on grazing
+// ground a tap on the same surface sits that many rows of slope behind the pixel.
+#define UPSAMPLE_SLOPE_MARGIN 1.5
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -50,8 +54,8 @@ float remap(float value, float min1, float max1, float min2, float max2) {
   return min2 + (value - min1) * (max2 - min2) / (max1 - min1);
 }
 
-float surfaceMatch(float tapGeometry, float pixelGeometry){
-	float relative = abs(tapGeometry - pixelGeometry) / max(min(tapGeometry, pixelGeometry), 1.0);
+float surfaceMatch(float tapGeometry, float pixelGeometry, float slopeAllowance){
+	float relative = max(abs(tapGeometry - pixelGeometry) - slopeAllowance, 0.0) / max(min(tapGeometry, pixelGeometry), 1.0);
 	return exp2(-min(relative, UPSAMPLE_MAX_RELATIVE) * UPSAMPLE_DEPTH_SHARPNESS);
 }
 
@@ -67,17 +71,51 @@ float tapOcclusion(vec4 tapData, float linear_depth, float minstep){
 	return clamp((cloudBack - occludedFrom) / (cloudBack - cloudFront), 0.0, 1.0);
 }
 
+float pixelLinearDepth(ivec2 p, ivec2 size){
+	float depth = texelFetchMSAA(depth_image, p, 0).r;
+	if (depth <= 0.0){
+		return 1e9;
+	}
+	vec2 screenUV = (vec2(p) + 0.5) / vec2(size);
+	vec4 view = scene_data_block.data.inv_projection_matrix * vec4(screenUV * 2.0 - 1.0, depth, 1.0);
+	return length(view.xyz / view.w);
+}
+
+// Depth change per pixel along each axis, taking the smaller step to either
+// neighbour: continuous ground has two similar steps, while a silhouette has
+// one large and one small, so it still reads as flat and keeps the match strict.
+float pixelDepthSlope(ivec2 p, ivec2 size){
+	float center = pixelLinearDepth(p, size);
+	float slope = 0.0;
+	for (int axis = 0; axis < 2; axis++){
+		ivec2 stepDir = axis == 0 ? ivec2(1, 0) : ivec2(0, 1);
+		float smallest = 1e30;
+		for (int side = -1; side <= 1; side += 2){
+			ivec2 q = p + stepDir * side;
+			if (all(greaterThanEqual(q, ivec2(0))) && all(lessThan(q, size))){
+				smallest = min(smallest, abs(pixelLinearDepth(q, size) - center));
+			}
+		}
+		slope += smallest < 1e29 ? smallest : 0.0;
+	}
+	return slope;
+}
+
 void main() {
     ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
     ivec2 lowres_size = ivec2(genericData.data.raster_size);
 
     int resolutionScale = int(genericData.data.resolutionscale);
-    ivec2 size = lowres_size * resolutionScale;
+    // The real target size; lowres_size * resolutionScale overhangs it at odd sizes.
+    ivec2 size = textureSizeMSAA(depth_image);
 
+	// depthUV places this pixel on screen, for rebuilding its view ray. accumUV
+	// places it on the low-res grid, whose texels each cover resolutionScale pixels
+	// from the top-left, matching how the prepass and march laid them out.
 	vec2 depthUV = (vec2(uv) + 0.5) / vec2(size);
 	depthUV = clamp(depthUV, vec2(0.0), vec2(1.0));
 
-	vec2 accumUV = depthUV;
+	vec2 accumUV = (vec2(uv) + 0.5) / vec2(lowres_size * resolutionScale);
 
 	vec2 lowres_sizefloat = vec2(lowres_size);
 
@@ -143,6 +181,9 @@ void main() {
 	float cachedSurface = -1.0;
 	float cachedShadowProxy = -1.0;
 
+	// Measured once per pixel from the first sample; the window is 2 * scale pixels wide.
+	float slopeAllowance = pixelDepthSlope(uv, size) * float(2 * resolutionScale) * UPSAMPLE_SLOPE_MARGIN;
+
 	for (int sampleIdx = 0; sampleIdx < textureSamplesMSAA(depth_image); ++sampleIdx) {
 		float depth = texelFetchMSAA(depth_image, uv, sampleIdx).r;
 		vec4 view = scene_data_block.data.inv_projection_matrix * vec4(depthUV*2.0-1.0,depth,1.0);
@@ -162,7 +203,7 @@ void main() {
 		float weightSum = 0.0;
 		for (int t = 0; t < 4; t++){
 
-			float match = surfaceMatch(tapData[t].a, pixelGeometry);
+			float match = surfaceMatch(tapData[t].a, pixelGeometry, slopeAllowance);
 			float tapLerp = tapOcclusion(tapData[t], linear_depth, minstep) * (1.0 - match);
 			float weight = (tapBilinear[t] + UPSAMPLE_BILINEAR_FLOOR) * match;
 			cloudSum += tapColor[t] * (1.0 - tapLerp) * weight;

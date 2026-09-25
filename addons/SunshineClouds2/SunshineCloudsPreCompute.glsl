@@ -2,7 +2,7 @@
 #version 450
 
 #include "./CloudsInc.comp"
-// Shared header revision 2: GenericData without the radial blur fields.
+// Shared header revision 3: GenericData carries the full target size.
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -20,14 +20,14 @@ void main() {
 
     // int resolutionScale = int(params.resolutionscale);
     int resolutionScale = int(genericData.data.resolutionscale);
-    ivec2 size = lowres_size * resolutionScale;
+    // The depth buffer's own size, not lowres_size * resolutionScale, which can be
+    // a pixel larger at odd sizes.
+    ivec2 size = textureSize(depth_image, 0);
 
     int adjustedScale = resolutionScale * 2;
     int windowOffset = (adjustedScale - resolutionScale) / 2;
     ivec2 starting_uv = ivec2(floor(vec2(base_uv) * float(resolutionScale))) - ivec2(windowOffset);
     ivec2 current_uv = starting_uv;
-
-    vec2 depthUV = vec2(0.0);
 
     float furthestDepth = 10000000000000000.0;
     for (int x = 0; x < adjustedScale; x++) {
@@ -37,9 +37,10 @@ void main() {
                 continue;
             }
 
-            depthUV = vec2((float(current_uv.x) + 0.5) / float(size.x), (float(current_uv.y) + 0.5) / float(size.y));
-
-            furthestDepth = min(texture(depth_image, depthUV).r, furthestDepth);
+            // Fetched by pixel, not sampled by a normalized UV: a UV built against
+            // the wrong size drifts across the screen and snaps to the next row
+            // halfway down, which split the low-res depth along the middle.
+            furthestDepth = min(texelFetch(depth_image, current_uv, 0).r, furthestDepth);
         }
     }
 

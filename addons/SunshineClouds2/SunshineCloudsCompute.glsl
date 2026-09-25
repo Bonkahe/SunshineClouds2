@@ -22,7 +22,7 @@
 #define GEOMETRY_BREAK_SLOPE_TEXELS 1.5
 
 #include "./CloudsInc.comp"
-// Shared header revision 2: GenericData without the radial blur fields.
+// Shared header revision 3: GenericData carries the full target size.
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -317,7 +317,12 @@ float sampleLighting(
 
 	vec3 curPos = worldPosition;
 	for (float i = 0.0; i < stepCountFloat; i++) {
-		float segmentEnd = mix(eachShortStep, marchDistance, clamp(quadraticOut((i + 1.0) / stepCountFloat), 0.0, 1.0));
+		// Clamp t before the ease, not after: stepCountFloat is fractional whenever lod
+		// is, so the last pass runs with t past 1, where quadraticOut turns back down.
+		// That walked segmentEnd backwards, gave the step a negative weight and the
+		// whole march a negative optical depth, which BeersLaw turned into light > 1
+		// and, at high density, +Inf - NaN that the accumulation then spread in blocks.
+		float segmentEnd = mix(eachShortStep, marchDistance, quadraticOut(clamp((i + 1.0) / stepCountFloat, 0.0, 1.0)));
 		float eachStepWeight = (segmentEnd - segmentStart) * weightNormalizer;
 
 		
@@ -500,7 +505,7 @@ void resolveHistory(
 
 // Fetch and resolve this texel's history for the world point it shows at
 // worldPos, bilinearly from wherever that point sat last frame.
-void reprojectHistory(vec3 worldPos, ivec2 uv, ivec2 size, float pixelScale,
+void reprojectHistory(vec3 worldPos, ivec2 uv, ivec2 size, vec2 screenTexels, float pixelScale,
 	out vec4 historyColor, out vec4 historyData, out float confidence,
 	out float shift, out bool invalid)
 {
@@ -511,7 +516,7 @@ void reprojectHistory(vec3 worldPos, ivec2 uv, ivec2 size, float pixelScale,
 
 	vec4 reprojectedScreenPos = scene_data_block.prev_data.projection_matrix * reprojectedClipPos;
 	vec2 ndc = reprojectedScreenPos.xy / reprojectedScreenPos.w;
-	vec2 historyPixel = (ndc * 0.5 + 0.5) * vec2(size) - 0.5;
+	vec2 historyPixel = (ndc * 0.5 + 0.5) * screenTexels - 0.5;
 
 	vec2 historyBase = floor(historyPixel);
 	vec2 historyFrac = historyPixel - historyBase;
@@ -601,8 +606,13 @@ void main() {
 	bool inBounds = (uv.x < size.x && uv.y < size.y);
 	uv = min(uv, size - ivec2(1));
 	
-	vec2 depthUV = (uv + 0.5) / vec2(size);
-	float depth = texture(depth_image, depthUV).r;
+	// Texel uv covers full-res pixels [uv * scale, uv * scale + scale), so its centre
+	// sits at (uv + 0.5) * scale real pixels. screenTexels is the screen measured
+	// in texels; it is not size itself, since the grid overhangs odd-sized screens.
+	float resolutionScale = genericData.data.resolutionscale;
+	vec2 screenTexels = genericData.data.full_raster_size / resolutionScale;
+	vec2 depthUV = (vec2(uv) + 0.5) / screenTexels;
+	float depth = texelFetch(depth_image, uv, 0).r;
 
 	vec4 view = scene_data_block.data.inv_projection_matrix * vec4(depthUV*2.0-1.0,depth,1.0);
 	view.xyz /= view.w;
@@ -615,7 +625,7 @@ void main() {
 
 	vec2 subPixelJitter = (whiteNoise.xy - 0.5) * SUBPIXEL_JITTER;
 
-	vec2 rayUV = depthUV + subPixelJitter / vec2(size);
+	vec2 rayUV = depthUV + subPixelJitter / screenTexels;
 
 	vec2 ndc = vec2(0.0);
 
@@ -1099,7 +1109,7 @@ void main() {
 	}
 	float anchorDistance = clamp(1.0 / max(anchorDisparity, 1.0 / maxTheoreticalStep), minstep, maxTheoreticalStep);
 
-	float focalPixels = 0.5 * float(size.y) * abs(scene_data_block.data.projection_matrix[1][1]);
+	float focalPixels = 0.5 * screenTexels.y * abs(scene_data_block.data.projection_matrix[1][1]);
 
 	vec3 prevViewDelta = mat3(scene_data_block.prev_data.view_matrix) * cameraDelta;
 	vec3 prevViewRay = mat3(scene_data_block.prev_data.view_matrix) * rayDirectionCenter;
@@ -1215,13 +1225,13 @@ void main() {
 	float historyConfidence;
 	float historyShift;
 	bool historyInvalid;
-	reprojectHistory(rayOrigin + rayDirectionCenter * anchorDistance, uv, size, parallaxPixelScale,
+	reprojectHistory(rayOrigin + rayDirectionCenter * anchorDistance, uv, size, screenTexels, parallaxPixelScale,
 		currentColorAccumilation, currentDataAccumilation, historyConfidence, historyShift, historyInvalid);
 
 	float neighbourhoodAlpha = clamp(wideColor.a, 0.0, 1.0);
 	if (clamp(currentColorAccumilation.a, 0.0, 1.0) > neighbourhoodAlpha + HISTORY_REANCHOR_ALPHA){
 		float reanchorDistance = clamp(currentDataAccumilation.b, minstep, maxTheoreticalStep);
-		reprojectHistory(rayOrigin + rayDirectionCenter * reanchorDistance, uv, size, parallaxPixelScale,
+		reprojectHistory(rayOrigin + rayDirectionCenter * reanchorDistance, uv, size, screenTexels, parallaxPixelScale,
 			currentColorAccumilation, currentDataAccumilation, historyConfidence, historyShift, historyInvalid);
 	}
 

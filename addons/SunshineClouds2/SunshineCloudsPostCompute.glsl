@@ -3,4 +3,4 @@
 
 #include "./CloudsInc.comp"
 #include "./SunshineCloudsPostCompute.comp"
-// Body revision 5: depth-aware upsample; radial blur removed.
+// Body revision 7: slope-aware upsample match on grazing ground.

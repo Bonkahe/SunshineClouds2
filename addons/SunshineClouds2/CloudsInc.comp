@@ -92,6 +92,10 @@ struct GenericData{
 	float geometry_shadow_strength;
 	float geometry_shadow_sharpness;
 	float geometry_shadow_distance_fade;
+
+	// The real full-res target size. raster_size * resolutionscale can overshoot
+	// it by up to a texel at odd sizes, so screen positions come from this.
+	vec2 full_raster_size;
 };
 
 struct DirectionalLight {

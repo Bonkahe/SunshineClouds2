@@ -520,7 +520,10 @@ func _render_callback(effect_callback_type, render_data):
 				#3: 
 					#resscale = 8
 			
-			var new_size = size / resscale
+			# Rounded up so the low-res grid covers every full-res pixel. Rounding down
+			# left the shaders deriving an 852-row screen from an 853-row one, and the
+			# half-pixel drift that caused split the ground shadow along the middle.
+			var new_size = (size + Vector2i(resscale - 1, resscale - 1)) / resscale
 			var view_count = buffers.get_view_count()
 			var rendersceneData : RenderSceneData = render_data.get_render_scene_data();
 			
@@ -843,7 +846,7 @@ func _render_callback(effect_callback_type, render_data):
 			
 			last_size = size
 			
-			update_matrices(cameraTR, viewProj, new_size)
+			update_matrices(cameraTR, viewProj, new_size, size)
 			if lights_updated or directional_lights_data.size() == 0:
 				update_lights()
 			
@@ -1006,7 +1009,7 @@ func retrieve_position_queries(data : PackedByteArray):
 		#if (self.effect_callback_type != CompositorEffect.EFFECT_CALLBACK_TYPE_PRE_TRANSPARENT):
 			#self.effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_PRE_TRANSPARENT
 
-func update_matrices(camera_tr, view_proj, new_size: Vector2i):
+func update_matrices(camera_tr, view_proj, new_size: Vector2i, full_size: Vector2i):
 	if general_data.size() != 272: #68 * 4 bytes for each float = 272.
 		general_data.resize(272)
 	
@@ -1205,6 +1208,9 @@ func update_matrices(camera_tr, view_proj, new_size: Vector2i):
 	general_data.encode_float(idx, geometry_shadow_strength); idx += 4
 	general_data.encode_float(idx, geometry_shadow_sharpness); idx += 4
 	general_data.encode_float(idx, geometry_shadow_distance_fade); idx += 4
+
+	general_data.encode_float(idx, full_size.x); idx += 4
+	general_data.encode_float(idx, full_size.y); idx += 4
 	#
 	#general_data.encode_float(idx, last_size.x); idx += 4
 	#general_data.encode_float(idx, last_size.y); idx += 4
