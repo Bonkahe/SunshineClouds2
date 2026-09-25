@@ -53,7 +53,6 @@ small_scale_noise = ExtResource("11_ea8oe")
 curl_noise = ExtResource("2_tfvib")
 dither_speed = 100.825
 blur_power = 1.0
-blur_quality = 1.0
 reflections_globalshaderparam = ""
 min_step_distance = 100.0
 max_step_distance = 600.0

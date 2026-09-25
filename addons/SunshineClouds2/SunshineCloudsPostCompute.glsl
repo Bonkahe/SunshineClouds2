@@ -3,4 +3,4 @@
 
 #include "./CloudsInc.comp"
 #include "./SunshineCloudsPostCompute.comp"
-// Body revision 2: premultiplied composite; geometry shadow keeps its aerial inscatter.
+// Body revision 5: depth-aware upsample; radial blur removed.

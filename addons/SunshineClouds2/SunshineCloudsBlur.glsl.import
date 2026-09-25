@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://c5x3b7wxgsopc"
+path="res://.godot/imported/SunshineCloudsBlur.glsl-8e69fd4b967ed550ccc4d057ee46c0a5.res"
+
+[deps]
+
+source_file="res://addons/SunshineClouds2/SunshineCloudsBlur.glsl"
+dest_files=["res://.godot/imported/SunshineCloudsBlur.glsl-8e69fd4b967ed550ccc4d057ee46c0a5.res"]
+
+[params]
+

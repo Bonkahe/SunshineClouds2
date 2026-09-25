@@ -58,6 +58,11 @@ class_name SunshineCloudsGD
 @export_range(0, 2) var lod_bias : float = 1.0
 
 @export_subgroup("Noise Textures")
+## Controls based on height in cloud layer, left is lowest right is highest: 
+## R: Large noise shape control (general density control)
+## G: Small noise control (fine detail, lower value means less small noise in the mix ie: puffier clouds)
+## B: Extra large shape noise control
+## A: Curl noise effect control
 @export var height_gradient : Texture2D
 @export var extra_large_noise_patterns : Texture2D
 @export var large_scale_noise : Texture3D
@@ -68,8 +73,13 @@ class_name SunshineCloudsGD
 @export_group("Advanced Settings")
 @export_subgroup("Visuals")
 @export_range(0, 1000) var dither_speed : float = 15.111
+## Blur radius in screen pixels, applied to the low-res cloud buffer between the
+## march and the post pass. At 0 the blur is skipped entirely.
 @export_range(0, 20) var blur_power : float = 2.0
-@export_range(0, 6) var blur_quality : float = 1.0
+## Blur passes; more passes give a smoother result at the same blur_power.
+@export_range(1, 8) var blur_passes : int = 3
+## How strongly the blur refuses to cross a jump in geometry distance.
+@export_range(0, 64) var blur_edge_sharpness : float = 8.0
 
 @export_subgroup("Reflections")
 @export var reflections_globalshaderparam : String = ""
@@ -78,6 +88,10 @@ class_name SunshineCloudsGD
 @export var min_step_distance : float = 400.0
 @export var max_step_distance : float = 500.0
 @export var lighting_travel_distance : float = 10000.0
+
+@export_subgroup("Debug")
+## Capture GPU timestamps around each pass; read them back from gpu_timings_ms.
+@export var profile_gpu : bool = false
 
 @export_subgroup("Mask")
 @export var extra_large_used_as_mask : bool = false
@@ -121,6 +135,17 @@ var prepass_pipeline : RID = RID()
 
 var postpass_shader : RID = RID()
 var postpass_pipeline : RID = RID()
+
+var blur_shader : RID = RID()
+var blur_pipeline : RID = RID()
+var blur_scratch_textures : Array[RID] = []
+# Per view: [color -> scratch, scratch -> color, post pass reading scratch].
+var blur_uniform_sets : Array[RID] = []
+
+# Milliseconds per pass from the last frame whose timestamps came back, keyed by
+# pass name. Only filled while profile_gpu is on.
+var gpu_timings_ms : Dictionary = {}
+const PROFILE_PASSES : Array[String] = ["prepass", "march", "blur", "post", "display"]
 
 var display_shader : RID = RID()
 var display_pipeline : RID = RID()
@@ -217,6 +242,14 @@ func clear_compute():
 			rd.free_rid(postpass_pipeline)
 		postpass_pipeline = RID()
 
+		if blur_pipeline.is_valid():
+			rd.free_rid(blur_pipeline)
+		blur_pipeline = RID()
+
+		if blur_shader.is_valid():
+			rd.free_rid(blur_shader)
+		blur_shader = RID()
+
 		if postpass_shader.is_valid():
 			rd.free_rid(postpass_shader)
 		postpass_shader = RID()
@@ -281,6 +314,12 @@ func clear_compute():
 					rd.free_rid(item)
 			blit_screen_images.clear()
 
+		for item in blur_scratch_textures:
+			if item.is_valid():
+				rd.free_rid(item)
+		blur_scratch_textures.clear()
+		blur_uniform_sets.clear()
+
 func initialize_compute():
 	first_run = true
 	if not rd:
@@ -340,7 +379,9 @@ func initialize_compute():
 		post_pass_compute_shader = ResourceLoader.load("res://addons/SunshineClouds2/SunshineCloudsPostCompute.msaa.glsl")
 		display_shader_file = ResourceLoader.load("res://addons/SunshineClouds2/SunshineCloudsDisplay.msaa.glsl")
 
-	if not compute_shader or not pre_pass_compute_shader or not post_pass_compute_shader or not display_shader_file:
+	var blur_shader_file : RDShaderFile = ResourceLoader.load("res://addons/SunshineClouds2/SunshineCloudsBlur.glsl")
+
+	if not compute_shader or not pre_pass_compute_shader or not post_pass_compute_shader or not display_shader_file or not blur_shader_file:
 		enabled = false
 		printerr("No Shader found on load.")
 		clear_compute()
@@ -376,6 +417,15 @@ func initialize_compute():
 	else:
 		enabled = false
 		printerr("Post pass Shader failed to compile.")
+		clear_compute()
+		return
+
+	blur_shader = rd.shader_create_from_spirv(blur_shader_file.get_spirv())
+	if blur_shader.is_valid():
+		blur_pipeline = rd.compute_pipeline_create(blur_shader)
+	else:
+		enabled = false
+		printerr("Blur Shader failed to compile.")
 		clear_compute()
 		return
 
@@ -744,6 +794,25 @@ func _render_callback(effect_callback_type, render_data):
 					uniform_sets.append(rd.uniform_set_create(postpass_uniforms_array, postpass_shader, 0))
 					#endregion
 
+					#region Blur
+					var blur_scratch : RID = rd.texture_create(base_colorformat, RDTextureView.new(), [blankImageData])
+					blur_scratch_textures.append(blur_scratch)
+					var cloud_color : RID = accumulation_textures[view * 7 + 1]
+					blur_uniform_sets.append(create_blur_uniform_set(cloud_color, accumulation_textures[view * 7], blur_scratch))
+					blur_uniform_sets.append(create_blur_uniform_set(blur_scratch, accumulation_textures[view * 7], cloud_color))
+
+					# An odd pass count leaves the result in the scratch texture, so the
+					# post pass gets a second set that reads from there.
+					var postpass_scratch_uniform = RDUniform.new()
+					postpass_scratch_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+					postpass_scratch_uniform.binding = 1
+					postpass_scratch_uniform.add_id(linear_sampler_no_repeat)
+					postpass_scratch_uniform.add_id(blur_scratch)
+					var postpass_scratch_uniforms_array : Array[RDUniform] = postpass_uniforms_array.duplicate()
+					postpass_scratch_uniforms_array[1] = postpass_scratch_uniform
+					blur_uniform_sets.append(rd.uniform_set_create(postpass_scratch_uniforms_array, postpass_shader, 0))
+					#endregion
+
 					#region Display Shader
 					var display_uniforms_array : Array[RDUniform] = []
 					var display_screen_texture_uniform = RDUniform.new()
@@ -786,24 +855,64 @@ func _render_callback(effect_callback_type, render_data):
 			var x_groups = ((size.x - 1) / 8 / resscale) + 1
 			var y_groups = ((size.y - 1) / 8 / resscale) + 1
 			
+			if profile_gpu:
+				read_gpu_timings()
+
+			# At blur_power 0 nothing is dispatched: the post pass reads the march
+			# output directly.
+			var blur_active := blur_power > 0.0 and blur_passes > 0
+			var blur_scale := blur_offset_scale(resscale) if blur_active else 0.0
+
 			for view in view_count:
+				if profile_gpu:
+					rd.capture_timestamp("SC_begin")
+
 				var prepass_list = rd.compute_list_begin()
 				rd.compute_list_bind_compute_pipeline(prepass_list, prepass_pipeline)
 				rd.compute_list_bind_uniform_set(prepass_list, uniform_sets[view * 4], 0)
 				rd.compute_list_dispatch(prepass_list, x_groups, y_groups, 1)
 				rd.compute_list_end()
+				if profile_gpu:
+					rd.capture_timestamp("SC_prepass")
 
 				var compute_list = rd.compute_list_begin()
 				rd.compute_list_bind_compute_pipeline(compute_list, pipeline)
 				rd.compute_list_bind_uniform_set(compute_list, uniform_sets[view * 4 + 1], 0)
 				rd.compute_list_dispatch(compute_list, x_groups, y_groups, 1)
 				rd.compute_list_end()
+				if profile_gpu:
+					rd.capture_timestamp("SC_march")
+
+				var postpass_set : RID = uniform_sets[view * 4 + 2]
+				if blur_active:
+					var blur_list = rd.compute_list_begin()
+					rd.compute_list_bind_compute_pipeline(blur_list, blur_pipeline)
+					for pass_index in blur_passes:
+						if pass_index > 0:
+							rd.compute_list_add_barrier(blur_list)
+						rd.compute_list_bind_uniform_set(blur_list, blur_uniform_sets[view * 3 + (pass_index % 2)], 0)
+						var push := PackedFloat32Array([
+							1.0 / float(new_size.x), 1.0 / float(new_size.y),
+							(float(pass_index) + 0.5) * blur_scale,
+							blur_edge_sharpness,
+							min(max_step_count * max_step_distance, 60000.0),
+							0.0, 0.0, 0.0,
+						]).to_byte_array()
+						rd.compute_list_set_push_constant(blur_list, push, push.size())
+						rd.compute_list_dispatch(blur_list, x_groups, y_groups, 1)
+					rd.compute_list_end()
+					if blur_passes % 2 == 1:
+						postpass_set = blur_uniform_sets[view * 3 + 2]
+				if profile_gpu:
+					rd.capture_timestamp("SC_blur")
 
 				var postpass_list = rd.compute_list_begin()
 				rd.compute_list_bind_compute_pipeline(postpass_list, postpass_pipeline)
-				rd.compute_list_bind_uniform_set(postpass_list, uniform_sets[view * 4 + 2], 0)
+				rd.compute_list_bind_uniform_set(postpass_list, postpass_set, 0)
 				rd.compute_list_dispatch(postpass_list, prepass_x_groups, prepass_y_groups, 1)
 				rd.compute_list_end()
+				if profile_gpu:
+					rd.capture_timestamp("SC_post")
 
 				var display_list := rd.draw_list_begin(framebuffer, RenderingDevice.DRAW_DEFAULT_ALL)
 				rd.draw_list_bind_render_pipeline(display_list, display_pipeline)
@@ -811,6 +920,8 @@ func _render_callback(effect_callback_type, render_data):
 				rd.draw_list_bind_vertex_array(display_list, display_vertex_array)
 				rd.draw_list_draw(display_list, false, 1)
 				rd.draw_list_end()
+				if profile_gpu:
+					rd.capture_timestamp("SC_display")
 
 			if (!positionResetting && positionQuerying):
 				positionResetting = true
@@ -822,6 +933,48 @@ func _render_callback(effect_callback_type, render_data):
 			#else:
 				#if (self.effect_callback_type != CompositorEffect.EFFECT_CALLBACK_TYPE_PRE_TRANSPARENT):
 					#self.effect_callback_type = CompositorEffect.EFFECT_CALLBACK_TYPE_PRE_TRANSPARENT
+
+func create_blur_uniform_set(source_color : RID, data : RID, destination_color : RID) -> RID:
+	var source_uniform = RDUniform.new()
+	source_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+	source_uniform.binding = 0
+	source_uniform.add_id(linear_sampler_no_repeat)
+	source_uniform.add_id(source_color)
+
+	var data_uniform = RDUniform.new()
+	data_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+	data_uniform.binding = 1
+	data_uniform.add_id(linear_sampler_no_repeat)
+	data_uniform.add_id(data)
+
+	var destination_uniform = RDUniform.new()
+	destination_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	destination_uniform.binding = 2
+	destination_uniform.add_id(destination_color)
+
+	return rd.uniform_set_create([source_uniform, data_uniform, destination_uniform], blur_shader, 0)
+
+func blur_offset_scale(resscale : int) -> float:
+	var radius := blur_power / float(resscale)
+	var offset_sum_sq := 0.0
+	for pass_index in blur_passes:
+		offset_sum_sq += pow(float(pass_index) + 0.5, 2.0)
+	return radius / sqrt(3.2 * offset_sum_sq)
+
+func read_gpu_timings():
+	var times : Dictionary = {}
+	for i in rd.get_captured_timestamps_count():
+		var timestamp_name := rd.get_captured_timestamp_name(i)
+		if timestamp_name.begins_with("SC_"):
+			times[timestamp_name.substr(3)] = rd.get_captured_timestamp_gpu_time(i)
+	if not times.has("begin") or not times.has("display"):
+		return
+	# GPU timestamps are in nanoseconds.
+	var previous : int = times["begin"]
+	for pass_name in PROFILE_PASSES:
+		gpu_timings_ms[pass_name] = float(times[pass_name] - previous) / 1000000.0
+		previous = times[pass_name]
+	gpu_timings_ms["total"] = float(times["display"] - times["begin"]) / 1000000.0
 
 func retrieve_position_queries(data : PackedByteArray):
 	
@@ -1017,8 +1170,6 @@ func update_matrices(camera_tr, view_proj, new_size: Vector2i):
 	general_data.encode_float(idx, float(max_lighting_steps)); idx += 4
 
 	general_data.encode_float(idx, use_environment_fog); idx += 4
-	general_data.encode_float(idx, float(blur_power)); idx += 4
-	general_data.encode_float(idx, float(blur_quality)); idx += 4
 	general_data.encode_float(idx, float(curl_noise_strength)); idx += 4
 	
 	general_data.encode_float(idx, wind_direction.x); idx += 4

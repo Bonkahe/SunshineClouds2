@@ -10,6 +10,17 @@
 // the scale of the atmosphere's 8km scale height, so 0.5% of the view distance is
 // far below anything that survives the MSAA resolve.
 #define AERIAL_REUSE_TOLERANCE 0.005
+#define AERIAL_REUSE_SHADOW_TOLERANCE 0.02
+
+// Depth-aware upsampling of the low-res cloud buffer. A tap's weight falls off
+// with the relative difference between the geometry distance it was marched
+// against and this pixel's own: at 10% apart a tap keeps a third of its weight.
+#define UPSAMPLE_DEPTH_SHARPNESS 16.0
+// Caps the relative difference so the falloff never underflows to zero; with all
+// four taps on other surfaces, the closest match still wins.
+#define UPSAMPLE_MAX_RELATIVE 4.0
+// Lets a well-matched tap take over even where its bilinear weight is ~0.
+#define UPSAMPLE_BILINEAR_FLOOR 0.001
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -39,147 +50,21 @@ float remap(float value, float min1, float max1, float min2, float max2) {
   return min2 + (value - min1) * (max2 - min2) / (max1 - min1);
 }
 
-float w0(float a)
-{
-    return (1.0/6.0)*(a*(a*(-a + 3.0) - 3.0) + 1.0);
+float surfaceMatch(float tapGeometry, float pixelGeometry){
+	float relative = abs(tapGeometry - pixelGeometry) / max(min(tapGeometry, pixelGeometry), 1.0);
+	return exp2(-min(relative, UPSAMPLE_MAX_RELATIVE) * UPSAMPLE_DEPTH_SHARPNESS);
 }
 
-float w1(float a)
-{
-    return (1.0/6.0)*(a*a*(3.0*a - 6.0) + 4.0);
-}
+float tapOcclusion(vec4 tapData, float linear_depth, float minstep){
+	if (linear_depth >= tapData.a){
+		return 0.0;
+	}
+	float cloudFront = min(tapData.r, tapData.b);
+	float cloudThin = cloudFront + minstep;
+	float cloudBack = clamp(2.0 * tapData.b - cloudFront, cloudThin, max(tapData.g, cloudThin));
 
-float w2(float a)
-{
-    return (1.0/6.0)*(a*(a*(-3.0*a + 3.0) + 3.0) + 1.0);
-}
-
-float w3(float a)
-{
-    return (1.0/6.0)*(a*a*a);
-}
-
-float g0(float a)
-{
-    return w0(a) + w1(a);
-}
-
-float g1(float a)
-{
-    return w2(a) + w3(a);
-}
-
-float h0(float a)
-{
-    return -1.0 + w1(a) / (w0(a) + w1(a));
-}
-
-float h1(float a)
-{
-    return 1.0 + w3(a) / (w2(a) + w3(a));
-}
-
-vec4 texture2D_bicubic(sampler2D tex, vec2 uv, vec2 res)
-{
-	uv = uv*res + 0.5;
-	vec2 iuv = floor( uv );
-	vec2 fuv = fract( uv );
-
-	float w0x = w0(fuv.x);
-	float w1x = w1(fuv.x);
-	float w2x = w2(fuv.x);
-	float w3x = w3(fuv.x);
-	float w0y = w0(fuv.y);
-	float w1y = w1(fuv.y);
-	float w2y = w2(fuv.y);
-	float w3y = w3(fuv.y);
-
-	float g0x = w0x + w1x;
-	float g1x = w2x + w3x;
-	float g0y = w0y + w1y;
-	float g1y = w2y + w3y;
-	float h0x = -1.0 + w1x / g0x;
-	float h1x = 1.0 + w3x / g1x;
-	float h0y = -1.0 + w1y / g0y;
-	float h1y = 1.0 + w3y / g1y;
-
-	vec2 p0 = (vec2(iuv.x + h0x, iuv.y + h0y) - 0.5) / res;
-	vec2 p1 = (vec2(iuv.x + h1x, iuv.y + h0y) - 0.5) / res;
-	vec2 p2 = (vec2(iuv.x + h0x, iuv.y + h1y) - 0.5) / res;
-	vec2 p3 = (vec2(iuv.x + h1x, iuv.y + h1y) - 0.5) / res;
-
-    return g0y * (g0x * texture(tex, p0)  +
-                  g1x * texture(tex, p1)) +
-           g1y * (g0x * texture(tex, p2)  +
-                  g1x * texture(tex, p3));
-}
-
-vec4 radialBlurColor(vec4 startColor, sampler2D colorImage, sampler2D depthImage, vec2 uv, vec2 size, float Directions, float blurVertical, float blurHorizontal, float Quality){
-    float Pi = 6.28318530718;
-    float count = 1.0;
-	float theoreticalMaxCount =  Directions * Quality;
-	//float stepLerp = 1.0 / theoreticalMaxCount;
-    vec4 Color = startColor;
-	//float CurrentDepth = startingDepth;
-	vec2 newUV = uv;
-    for( float d=0.0; d<Pi; d+=Pi/Directions)
-    {
-		vec2 dirStep = vec2(cos(d) * blurHorizontal, sin(d) * blurVertical);
-		for(float i=1.0/Quality; i<=1.0; i+=1.0/Quality)
-        {
-			newUV = uv + dirStep * i;
-			Color += texture2D_bicubic(colorImage, newUV, size);
-			count += 1.0;
-			//float newDepth = texture(depthImage, newUV).g;
-			//startingDepth = max(startingDepth, texture(depthImage, newUV).g);
-			// if (startingDepth - newDepth > genericData.max_step_distance){
-			// 	CurrentDepth = max(CurrentDepth, newDepth);
-			// 	Color += texture2D_bicubic(colorImage, newUV, size);
-			// 	count += 1.0;
-			// }
-        }
-    }
-    Color /= count;
-    return Color;
-}
-
-vec4 radialBlurData(vec4 startColor, float linear_depth, sampler2D image, vec2 uv, float Directions, float blurVertical, float blurHorizontal, float Quality){
-    float Pi = 6.28318530718;
-    float count = 1.0;
-	//float theoreticalMaxCount =  Directions * Quality;
-	//float stepLerp = 1.0 / theoreticalMaxCount;
-    vec4 Color = startColor;
-	//float originalDepth = Color.r;
-	//bool isNear = originalDepth < linear_depth;
-
-	//float meanDistancesFar = 0.0;
-    for( float d=0.0; d<Pi; d+=Pi/Directions)
-    {
-		vec2 dirStep = vec2(cos(d) * blurHorizontal, sin(d) * blurVertical);
-		for(float i=1.0/Quality; i<=1.0; i+=1.0/Quality)
-        {
-			Color = max(Color, texture(image, uv + dirStep * i));
-
-			//sampled = texture(image, uv + vec2(cos(d) * blurHorizontal * i, sin(d) * blurVertical * i));
-			//Color.rgb += sampled.rgb;
-			//Color.a = max(Color.a, sampled.a);
-			// if (abs(originalDepth - sampled) < 100.0){
-			// 	Color += texture(image, uv + vec2(cos(d) * blurHorizontal * i, sin(d) * blurVertical * i)).r;
-			// 	count += 1.0;
-			// }
-
-			// if (sampled > linear_depth){
-			// 	meanDistancesFar += 1.0;
-			// }
-			// else{
-			// 	meanDistancesFar -= 1.0;
-			// }
-			// maxDistance = max(maxDistance, sampled);
-			// minDistance = min(minDistance, sampled);
-			//count += 1.0;
-        }
-    }
-    return Color;
+	float occludedFrom = clamp(linear_depth, cloudFront, cloudBack);
+	return clamp((cloudBack - occludedFrom) / (cloudBack - cloudFront), 0.0, 1.0);
 }
 
 void main() {
@@ -195,56 +80,32 @@ void main() {
 	vec2 accumUV = depthUV;
 
 	vec2 lowres_sizefloat = vec2(lowres_size);
-	vec4 currentAccumilation = vec4(0.0);
-	vec4 currentColorData = vec4(0.0);
 
-	currentAccumilation = texture(input_color_image, accumUV);
+	float minstep = genericData.data.min_step_distance;
+	float maxstep = genericData.data.max_step_distance;
+	float maxTheoreticalStep = genericData.data.max_step_count * maxstep;
 
 	vec2 dataTexel = accumUV * lowres_sizefloat - 0.5;
 	vec2 dataBase = floor(dataTexel);
 	vec2 dataFrac = dataTexel - dataBase;
 
 	ivec2 dataMaxUV = lowres_size - ivec2(1);
-	ivec2 dt00 = clamp(ivec2(dataBase),               ivec2(0), dataMaxUV);
-	ivec2 dt10 = clamp(ivec2(dataBase) + ivec2(1, 0), ivec2(0), dataMaxUV);
-	ivec2 dt01 = clamp(ivec2(dataBase) + ivec2(0, 1), ivec2(0), dataMaxUV);
-	ivec2 dt11 = clamp(ivec2(dataBase) + ivec2(1, 1), ivec2(0), dataMaxUV);
+	ivec2 tapUV[4] = ivec2[4](
+		clamp(ivec2(dataBase),               ivec2(0), dataMaxUV),
+		clamp(ivec2(dataBase) + ivec2(1, 0), ivec2(0), dataMaxUV),
+		clamp(ivec2(dataBase) + ivec2(0, 1), ivec2(0), dataMaxUV),
+		clamp(ivec2(dataBase) + ivec2(1, 1), ivec2(0), dataMaxUV));
+	float tapBilinear[4] = float[4](
+		(1.0 - dataFrac.x) * (1.0 - dataFrac.y),
+		dataFrac.x * (1.0 - dataFrac.y),
+		(1.0 - dataFrac.x) * dataFrac.y,
+		dataFrac.x * dataFrac.y);
 
-	float dw00 = (1.0 - dataFrac.x) * (1.0 - dataFrac.y) * clamp(texelFetch(input_color_image, dt00, 0).a, 0.0, 1.0);
-	float dw10 = dataFrac.x * (1.0 - dataFrac.y) * clamp(texelFetch(input_color_image, dt10, 0).a, 0.0, 1.0);
-	float dw01 = (1.0 - dataFrac.x) * dataFrac.y * clamp(texelFetch(input_color_image, dt01, 0).a, 0.0, 1.0);
-	float dw11 = dataFrac.x * dataFrac.y * clamp(texelFetch(input_color_image, dt11, 0).a, 0.0, 1.0);
-	float dataWeight = dw00 + dw10 + dw01 + dw11;
-
-	if (dataWeight > 1e-5){
-		currentColorData = (texelFetch(input_data_image, dt00, 0) * dw00
-		                  + texelFetch(input_data_image, dt10, 0) * dw10
-		                  + texelFetch(input_data_image, dt01, 0) * dw01
-		                  + texelFetch(input_data_image, dt11, 0) * dw11) / dataWeight;
-	}
-	else{
-		currentColorData = texture(input_data_image, accumUV);
-	}
-
-	float initialdistanceSample = currentColorData.r;
-	float traveledDistance = currentColorData.g;
-	float visibleDistance = currentColorData.b;
-	float marchedAgainst = currentColorData.a;
-
-	float minstep = genericData.data.min_step_distance;
-	float maxstep = genericData.data.max_step_distance;
-
-	float blurPower = genericData.data.blurPower;
-	float maxTheoreticalStep = genericData.data.max_step_count * maxstep;
-
-	float blurDistanceNormaliser = min(maxTheoreticalStep, DATA_DISTANCE_MAX);
-	blurPower = mix(blurPower, 0.0, clamp(currentColorData.b / blurDistanceNormaliser, 0.0, 1.0));
-
-	if (blurPower > 0.0){
-		float blurHorizontal = blurPower / float(size.x);
-		float blurVertical = blurPower / float(size.y);
-		float blurQuality = genericData.data.blurQuality;
-		currentAccumilation = radialBlurColor(currentAccumilation, input_color_image, input_data_image, accumUV, lowres_sizefloat, blurQuality * 4.0, blurVertical, blurHorizontal, blurQuality);
+	vec4 tapColor[4];
+	vec4 tapData[4];
+	for (int t = 0; t < 4; t++){
+		tapColor[t] = texelFetch(input_color_image, tapUV[t], 0);
+		tapData[t] = texelFetch(input_data_image, tapUV[t], 0);
 	}
 
 	vec2 clipUV = vec2(depthUV.x, depthUV.y);
@@ -260,12 +121,11 @@ void main() {
 	vec3 rayOrigin = scene_data_block.data.main_cam_inv_view_matrix[3].xyz;
 
 	vec4 averageColor = vec4(0.0);
-
+	float reflectionDistance = 0.0;
 
 	vec3 ambientfogdistancecolor = genericData.data.ambientfogdistancecolor.rgb * genericData.data.ambientfogdistancecolor.a;
 	float atmosphericDensity = genericData.data.atmospheric_density;
 	int atmoLightCount = min(int(genericData.data.directionalLightsCount), 4);
-	float cloudShadowProxy = 1.0 - clamp(currentAccumilation.a, 0.0, 1.0);
 
 	vec3 atmoSunDirections[4];
 	vec3 atmoSunColors[4];
@@ -281,6 +141,7 @@ void main() {
 	AerialPerspective cachedAerial;
 	float cachedDepth = -1.0;
 	float cachedSurface = -1.0;
+	float cachedShadowProxy = -1.0;
 
 	for (int sampleIdx = 0; sampleIdx < textureSamplesMSAA(depth_image); ++sampleIdx) {
 		float depth = texelFetchMSAA(depth_image, uv, sampleIdx).r;
@@ -290,29 +151,33 @@ void main() {
 		if (depth <= 0.0){
 			linear_depth = 1e9;
 		}
-		float density = clamp(currentAccumilation.a, 0.0, 1.0);
-
-		float lerp = 0.0;
 		bool debugCollisions = false;
 
-		// if (linear_depth - max(max(traveledDistance, initialdistanceSample), finalDensityDistance) < maxstep){
-		// 	float firsttravelblend = mix(1.0 - clamp((traveledDistance - finalDensityDistance) / minstep, 0.0, 1.0), 1.0, clamp(finalDensityDistance / maxstep, 0.0, 1.0));
-		// 	lerp = (clamp((traveledDistance - linear_depth) / (traveledDistance - finalDensityDistance), 0.0, 1.0)) * firsttravelblend;
-		// }
+		float pixelGeometry = min(linear_depth, min(maxTheoreticalStep, DATA_DISTANCE_MAX));
 
-		float cloudFront = min(initialdistanceSample, visibleDistance);
-		float cloudThin = cloudFront + minstep;
-		float cloudBack = clamp(2.0 * visibleDistance - cloudFront, cloudThin, max(traveledDistance, cloudThin));
+		vec4 cloudSum = vec4(0.0);
+		float rawAlphaSum = 0.0;
+		float lerpSum = 0.0;
+		float traveledSum = 0.0;
+		float weightSum = 0.0;
+		for (int t = 0; t < 4; t++){
 
-		if (linear_depth < marchedAgainst){
-			float occludedFrom = clamp(linear_depth, cloudFront, cloudBack);
-			float occludedTo = clamp(marchedAgainst, cloudFront, cloudBack);
-
-			lerp = clamp((occludedTo - occludedFrom) / (cloudBack - cloudFront), 0.0, 1.0);
+			float match = surfaceMatch(tapData[t].a, pixelGeometry);
+			float tapLerp = tapOcclusion(tapData[t], linear_depth, minstep) * (1.0 - match);
+			float weight = (tapBilinear[t] + UPSAMPLE_BILINEAR_FLOOR) * match;
+			cloudSum += tapColor[t] * (1.0 - tapLerp) * weight;
+			rawAlphaSum += clamp(tapColor[t].a, 0.0, 1.0) * weight;
+			lerpSum += tapLerp * weight;
+			traveledSum += tapData[t].g * weight;
+			weightSum += weight;
 		}
+		float invWeight = 1.0 / weightSum;
+		vec3 cloudPremultiplied = cloudSum.rgb * invWeight;
+		float density = clamp(cloudSum.a * invWeight, 0.0, 1.0);
+		float lerp = lerpSum * invWeight;
+		reflectionDistance = traveledSum * invWeight;
 
-		vec3 cloudPremultiplied = currentAccumilation.rgb * (1.0 - lerp);
-		density = mix(density, 0.0, lerp);
+		float cloudShadowProxy = 1.0 - rawAlphaSum * invWeight;
 		float skyFade = smoothstep(maxTheoreticalStep - max(maxstep, 1.0), maxTheoreticalStep, linear_depth);
 		float groundLinearFade = mix(skyFade, 1.0, genericData.data.fogEffectGround);
 
@@ -321,7 +186,8 @@ void main() {
 		float surfacePresent = depth > 0.0 ? 1.0 : 0.0;
 
 		if (cachedDepth < 0.0 || surfacePresent != cachedSurface
-			|| abs(linear_depth - cachedDepth) > cachedDepth * AERIAL_REUSE_TOLERANCE){
+			|| abs(linear_depth - cachedDepth) > cachedDepth * AERIAL_REUSE_TOLERANCE
+			|| abs(cloudShadowProxy - cachedShadowProxy) > AERIAL_REUSE_SHADOW_TOLERANCE){
 
 			float atmoSunShadows[4] = float[4](1.0, 1.0, 1.0, 1.0);
 			for (int i = 0; i < atmoLightCount; i++){
@@ -333,6 +199,7 @@ void main() {
 				atmoLightCount, atmoSunDirections, atmoSunColors, atmoSunShadows, ambientfogdistancecolor);
 			cachedDepth = linear_depth;
 			cachedSurface = surfacePresent;
+			cachedShadowProxy = cloudShadowProxy;
 		}
 
 		AerialPerspective backgroundAerial = cachedAerial;
@@ -360,9 +227,9 @@ void main() {
 	averageColor /= textureSamplesMSAA(depth_image);
 
 	if (resolutionScale != 1){
-		imageStore(reflections_sample, ivec2(accumUV * vec2(lowres_size)), vec4(averageColor.rgb, traveledDistance));
+		imageStore(reflections_sample, ivec2(accumUV * vec2(lowres_size)), vec4(averageColor.rgb, reflectionDistance));
 	}
 	else{
-		imageStore(reflections_sample, uv, vec4(averageColor.rgb, traveledDistance));
+		imageStore(reflections_sample, uv, vec4(averageColor.rgb, reflectionDistance));
 	}
 }

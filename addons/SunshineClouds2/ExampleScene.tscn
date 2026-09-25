@@ -40,31 +40,29 @@ needs_motion_vectors = false
 needs_normal_roughness = false
 script = ExtResource("10_re0u6")
 clouds_coverage = 0.829
-clouds_density = 0.585
-atmospheric_density = 0.581
-lighting_density = 0.411
+clouds_density = 1.2770000000000001
+atmospheric_density = 0.35
+lighting_density = 0.335
 clouds_anisotropy = 0.106
-clouds_powder = 0.396
+clouds_powder = 0.572
 cloud_ambient_color = Color(0.3637637, 0.39542162, 0.44829726, 1)
 atmosphere_color = Color(0.77403104, 0.8595042, 0.9446787, 1)
 ambient_occlusion_color = Color(0.3885689, 0.19639263, 0.22344458, 1)
-accumulation_decay = 0.87
+accumulation_decay = 0.9
 extra_large_noise_scale = 116136.88
 large_noise_scale = 360686.097
-medium_noise_scale = 15808.851
-small_noise_scale = 5070.182
-clouds_sharpness = 0.572
-clouds_detail_power = 1.018
-curl_noise_strength = 3125.0
-lighting_sharpness = 0.07
+medium_noise_scale = 30310.462
+small_noise_scale = 8024.215
+clouds_sharpness = 0.234
+clouds_detail_power = 1.5979999999999999
+curl_noise_strength = 4334.678
+lighting_sharpness = 0.167
 wind_swept_range = 0.897
-wind_swept_strength = 885.417
 cloud_floor = 1000.0
 cloud_ceiling = 15000.0
 geometry_shadow_strength = 1.0
 geometry_shadow_sharpness = 1.302
 geometry_shadow_distance_fade = 4000.0
-resolution_scale = 0
 height_gradient = ExtResource("5_tq3dl")
 extra_large_noise_patterns = ExtResource("4_2j4np")
 large_scale_noise = ExtResource("6_mnubm")
@@ -72,9 +70,10 @@ medium_scale_noise = ExtResource("7_f1cuh")
 small_scale_noise = ExtResource("11_6b1a5")
 curl_noise = ExtResource("2_uu0np")
 blur_power = 0.0
+blur_edge_sharpness = 0.0
 reflections_globalshaderparam = "Reflections"
 min_step_distance = 100.0
-lighting_travel_distance = 12000.0
+lighting_travel_distance = 6000.0
 pre_pass_compute_shader = ExtResource("9_penpr")
 compute_shader = ExtResource("1_0jtrb")
 post_pass_compute_shader = ExtResource("7_g0kkk")
@@ -173,6 +172,27 @@ size = Vector2(200, 200)
 subdivide_width = 1
 subdivide_depth = 1
 
+[sub_resource type="Gradient" id="Gradient_g0kkk"]
+offsets = PackedFloat32Array(0.5019305, 0.53281856)
+colors = PackedColorArray(0.21176553, 0.26872873, 0.18142706, 1, 0.21176471, 0.27058825, 0.18039216, 0)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_0jtrb"]
+frequency = 0.0034
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_uu0np"]
+noise = SubResource("FastNoiseLite_0jtrb")
+color_ramp = SubResource("Gradient_g0kkk")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_6wvml"]
+transparency = 2
+alpha_scissor_threshold = 0.5
+alpha_antialiasing_mode = 0
+albedo_texture = SubResource("NoiseTexture2D_uu0np")
+billboard_mode = 1
+billboard_keep_scale = true
+
+[sub_resource type="QuadMesh" id="QuadMesh_2j4np"]
+
 [node name="ExampleScene" type="Node3D" unique_id=445706962]
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1158022341]
@@ -185,7 +205,7 @@ shadow_enabled = true
 directional_shadow_max_distance = 20000.0
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1641415156]
-transform = Transform3D(1000, 0, 0, 0, 12000, 0, 0, 0, 1000, 2741.6929, 6000, 292.26886)
+transform = Transform3D(1000, 0, 0, 0, 12000, 0, 0, 0, 1000, 2864.397, 5288.073, 292.26886)
 mesh = SubResource("CylinderMesh_o8tia")
 
 [node name="MeshInstance3D2" type="MeshInstance3D" parent="." unique_id=1396086920]
@@ -254,11 +274,46 @@ tracked_point_effectors = [NodePath("../SunshineCloudsEffector"), NodePath("../S
 wind_direction = Vector3(2, 0, 2)
 metadata/_custom_type_script = "uid://djusduuxf0voj"
 
-[node name="Camera3D" type="Camera3D" parent="." unique_id=983599202]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 572.5508, 12376.3, -20899.64)
+[node name="TestCamera1" type="Camera3D" parent="." unique_id=983599202]
+transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, -20.271921, 6.263406, -1.7323771e-07)
+far = 400000.0
+
+[node name="TestCamera2" type="Camera3D" parent="." unique_id=1659156320]
+transform = Transform3D(-4.371139e-08, 0.8082917, -0.58878225, 0, 0.58878225, 0.8082917, 1, 3.5331553e-08, -2.573649e-08, -15453.555, 24995.27, -0.0009767357)
 far = 400000.0
 
 [node name="MeshInstance3D8" type="MeshInstance3D" parent="." unique_id=929383462]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12.099295, -3.0646873, -1.5056334)
+visible = false
 material_override = SubResource("ShaderMaterial_re0u6")
 mesh = SubResource("PlaneMesh_6b1a5")
+
+[node name="MeshInstance3D9" type="MeshInstance3D" parent="." unique_id=243216673]
+transform = Transform3D(-0.6671026, 0, -56.43949, 0, 55.115555, 0, 54.02197, 0, -0.69695586, 52.77733, 0, 0.65173286)
+material_override = SubResource("StandardMaterial3D_6wvml")
+mesh = SubResource("QuadMesh_2j4np")
+
+[node name="MeshInstance3D10" type="MeshInstance3D" parent="." unique_id=1922845686]
+transform = Transform3D(-2.8203092, 0, -238.60919, 0, 233.012, 0, 228.38864, 0, -2.9465199, 487.70767, 86.316154, -86.77805)
+material_override = SubResource("StandardMaterial3D_6wvml")
+mesh = SubResource("QuadMesh_2j4np")
+
+[node name="MeshInstance3D12" type="MeshInstance3D" parent="." unique_id=1860494655]
+transform = Transform3D(-2.8203092, 0, -238.60919, 0, 233.012, 0, 228.38864, 0, -2.9465199, 1701.8213, 86.316154, -670.3004)
+material_override = SubResource("StandardMaterial3D_6wvml")
+mesh = SubResource("QuadMesh_2j4np")
+
+[node name="MeshInstance3D13" type="MeshInstance3D" parent="." unique_id=752691977]
+transform = Transform3D(-2.8098228, 0, -238.026, 0, 233.012, 0, 227.53946, 0, -2.9393182, 1918.5874, 86.316216, -1055.6078)
+material_override = SubResource("StandardMaterial3D_6wvml")
+mesh = SubResource("QuadMesh_2j4np")
+
+[node name="MeshInstance3D14" type="MeshInstance3D" parent="." unique_id=44172971]
+transform = Transform3D(-2.8098228, 0, -238.026, 0, 233.012, 0, 227.53946, 0, -2.9393182, 2155.229, 86.31628, -935.9064)
+material_override = SubResource("StandardMaterial3D_6wvml")
+mesh = SubResource("QuadMesh_2j4np")
+
+[node name="MeshInstance3D11" type="MeshInstance3D" parent="." unique_id=1570177621]
+transform = Transform3D(-2.0227723, 0, -171.13448, 0, 167.12006, 0, 163.80412, 0, -2.113293, 188.90515, 71.40326, 181.37999)
+material_override = SubResource("StandardMaterial3D_6wvml")
+mesh = SubResource("QuadMesh_2j4np")

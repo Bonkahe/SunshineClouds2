@@ -10,9 +10,19 @@
 #define CLOUD_OCCLUSION_MIN_DECAY 0.2
 #define HISTORY_PIXEL_TOLERANCE 1.0
 #define REBUILD_PIXEL_TOLERANCE 2.0
+// History holding this much more cloud than the current neighbourhood is
+// re-fetched at the depth of its own cloud (see the second reprojection pass).
+#define HISTORY_REANCHOR_ALPHA 0.05
 #define GOLDEN_RATIO_FRACT 0.6180339887498949
+// History whose geometry distance misses the reprojected one by more than this
+// share (plus the local slope allowance below) belonged to another surface.
+#define GEOMETRY_BREAK_RELATIVE 0.05
+// Texels of local geometry slope allowed on top, so a continuous but steep
+// surface (ground toward the horizon) is not mistaken for a silhouette.
+#define GEOMETRY_BREAK_SLOPE_TEXELS 1.5
 
 #include "./CloudsInc.comp"
+// Shared header revision 2: GenericData without the radial blur fields.
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -488,6 +498,57 @@ void resolveHistory(
 	}
 }
 
+// Fetch and resolve this texel's history for the world point it shows at
+// worldPos, bilinearly from wherever that point sat last frame.
+void reprojectHistory(vec3 worldPos, ivec2 uv, ivec2 size, float pixelScale,
+	out vec4 historyColor, out vec4 historyData, out float confidence,
+	out float shift, out bool invalid)
+{
+	vec3 prevCameraPos = scene_data_block.prev_data.main_cam_inv_view_matrix[3].xyz;
+	vec4 reprojectedClipPos = scene_data_block.prev_data.view_matrix * vec4(worldPos, 1.0);
+	reprojectedClipPos.z -= 0.01;
+	invalid = reprojectedClipPos.z > 0.0;
+
+	vec4 reprojectedScreenPos = scene_data_block.prev_data.projection_matrix * reprojectedClipPos;
+	vec2 ndc = reprojectedScreenPos.xy / reprojectedScreenPos.w;
+	vec2 historyPixel = (ndc * 0.5 + 0.5) * vec2(size) - 0.5;
+
+	vec2 historyBase = floor(historyPixel);
+	vec2 historyFrac = historyPixel - historyBase;
+	shift = length(historyPixel - vec2(uv));
+
+	float expectedPrevDisparity = 1.0 / max(length(worldPos - prevCameraPos), 1.0);
+
+	ivec2 adjustedUV = ivec2(historyBase);
+	ivec2 accumMaxUV = size - ivec2(1);
+	ivec2 clampedUV = clamp(adjustedUV, ivec2(0), accumMaxUV);
+	invalid = invalid || clampedUV != adjustedUV;
+
+	ivec2 tap00 = clampedUV;
+	ivec2 tap10 = clamp(clampedUV + ivec2(1, 0), ivec2(0), accumMaxUV);
+	ivec2 tap01 = clamp(clampedUV + ivec2(0, 1), ivec2(0), accumMaxUV);
+	ivec2 tap11 = clamp(clampedUV + ivec2(1, 1), ivec2(0), accumMaxUV);
+
+	if (genericData.data.isAccumulationA > 0.0){
+		resolveHistory(
+			imageLoad(accum_1A_image, tap00), imageLoad(accum_1A_image, tap10),
+			imageLoad(accum_1A_image, tap01), imageLoad(accum_1A_image, tap11),
+			imageLoad(accum_2A_image, tap00), imageLoad(accum_2A_image, tap10),
+			imageLoad(accum_2A_image, tap01), imageLoad(accum_2A_image, tap11),
+			historyFrac, expectedPrevDisparity, pixelScale, HISTORY_PIXEL_TOLERANCE,
+			historyColor, historyData, confidence);
+	}
+	else{
+		resolveHistory(
+			imageLoad(accum_1B_image, tap00), imageLoad(accum_1B_image, tap10),
+			imageLoad(accum_1B_image, tap01), imageLoad(accum_1B_image, tap11),
+			imageLoad(accum_2B_image, tap00), imageLoad(accum_2B_image, tap10),
+			imageLoad(accum_2B_image, tap01), imageLoad(accum_2B_image, tap11),
+			historyFrac, expectedPrevDisparity, pixelScale, HISTORY_PIXEL_TOLERANCE,
+			historyColor, historyData, confidence);
+	}
+}
+
 void blendAccumulation(
 	vec4 lightColor,
 	vec4 currentDistances,
@@ -497,6 +558,7 @@ void blendAccumulation(
 	float accumdecay,
 	float travelspeed,
 	float expectedPrevGeometry,
+	float geometryTolerance,
 	bool hardReset,
 	inout vec4 accumColor,
 	inout vec4 accumData)
@@ -513,7 +575,11 @@ void blendAccumulation(
 	historyData.rgb = mix(spatialDistance.rgb, accumData.rgb, historyConfidence);
 
 	float surfaceTransmittance = 1.0 - min(clamp(lightColor.a, 0.0, 1.0), clamp(historyColor.a, 0.0, 1.0));
-	float occlusionBreak = surfaceTransmittance * smoothstep(OCCLUSION_BREAK_SLACK, OCCLUSION_BREAK_SLACK + 1.0, abs(expectedPrevGeometry - accumData.a) / max(travelspeed, 0.001));
+	float geometryMiss = abs(expectedPrevGeometry - accumData.a);
+	
+	float cloudBreak = smoothstep(OCCLUSION_BREAK_SLACK, OCCLUSION_BREAK_SLACK + 1.0, geometryMiss / max(travelspeed, 0.001));
+	float surfaceBreak = smoothstep(geometryTolerance, geometryTolerance * 2.0, geometryMiss);
+	float occlusionBreak = surfaceTransmittance * max(cloudBreak, surfaceBreak);
 
 	float effectiveDecay = mix(accumdecay, min(accumdecay, CLOUD_OCCLUSION_MIN_DECAY), occlusionBreak);
 
@@ -1116,74 +1182,52 @@ void main() {
 		spatialDistance = vec4(initialdistanceSample, traveledDistance, visibleDistance, geometryDistance);
 	}
 
+
+	float centerGeometry = s_tileDistance[tileIndex].w;
+	vec2 geometrySlope = vec2(0.0);
+	for (int axis = 0; axis < 2; axis++){
+		ivec2 stepDir = axis == 0 ? ivec2(1, 0) : ivec2(0, 1);
+		float slope = 1e30;
+		for (int side = -1; side <= 1; side += 2){
+			ivec2 tapLocal = windowCenter + stepDir * side;
+			if (all(greaterThanEqual(tapLocal, ivec2(0))) && all(lessThanEqual(tapLocal, ivec2(7)))){
+				slope = min(slope, abs(s_tileDistance[tapLocal.y * 8 + tapLocal.x].w - centerGeometry));
+			}
+		}
+		geometrySlope[axis] = slope < 1e29 ? slope : 0.0;
+	}
+	float geometryTolerance = max(GEOMETRY_BREAK_RELATIVE * geometryDistance
+		+ GEOMETRY_BREAK_SLOPE_TEXELS * (geometrySlope.x + geometrySlope.y), 1.0);
+
 	vec4 boxCenter = (colorMin + colorMax) * 0.5;
 	vec4 boxExtent = (colorMax - colorMin) * 0.5 * NEIGHBORHOOD_WIDEN;
 
 	vec4 neighborhoodMin = boxCenter - boxExtent;
 	vec4 neighborhoodMax = boxCenter + boxExtent;
 
-	vec3 worldFinalPos = rayOrigin + rayDirectionCenter * anchorDistance;
 	vec3 prevCameraPos = scene_data_block.prev_data.main_cam_inv_view_matrix[3].xyz;
-
-	vec4 reprojectedScreenPos = vec4(0.0);
-	vec4 reprojectedClipPos = scene_data_block.prev_data.view_matrix * vec4(worldFinalPos, 1.0);
-
-	reprojectedClipPos.z -= 0.01;
-	if (reprojectedClipPos.z > 0.0){
-		override = true;
-	}
-
-	reprojectedScreenPos = scene_data_block.prev_data.projection_matrix * reprojectedClipPos;
-
-	ndc = (reprojectedScreenPos.xy / reprojectedScreenPos.w);
-
-	vec2 historyPixel = (ndc * 0.5 + 0.5) * vec2(size) - 0.5;
-
-	vec2 historyBase = floor(historyPixel);
-	vec2 historyFrac = historyPixel - historyBase;
-
-	float historyShift = length(historyPixel - vec2(uv));
-	float historyTrust = 1.0 - smoothstep(0.0, CLAMP_RELAX_PIXELS, historyShift);
-
-	float expectedPrevDisparity = 1.0 / max(length(worldFinalPos - prevCameraPos), 1.0);
 	float expectedPrevGeometry = length(rayOrigin + rayDirectionCenter * geometryDistance - prevCameraPos);
 
-	ivec2 adjustedUV = ivec2(historyBase);
-
-	ivec2 clampedUV = clamp(adjustedUV, ivec2(0), size - ivec2(1));
-	ivec2 accumMaxUV = size - ivec2(1);
-
-	ivec2 tap00 = clamp(clampedUV,               ivec2(0), accumMaxUV);
-	ivec2 tap10 = clamp(clampedUV + ivec2(1, 0), ivec2(0), accumMaxUV);
-	ivec2 tap01 = clamp(clampedUV + ivec2(0, 1), ivec2(0), accumMaxUV);
-	ivec2 tap11 = clamp(clampedUV + ivec2(1, 1), ivec2(0), accumMaxUV);
-
 	float accumdecay = genericData.data.accumilation_decay;
-
-	float usingaccumA = genericData.data.isAccumulationA;
-
 	vec4 currentDistances = vec4(initialdistanceSample, traveledDistance, visibleDistance, geometryDistance);
-	float historyConfidence = 1.0;
-	bool hardReset = override || clampedUV != adjustedUV;
 
-	if (usingaccumA > 0.0){
-		resolveHistory(
-			imageLoad(accum_1A_image, tap00), imageLoad(accum_1A_image, tap10),
-			imageLoad(accum_1A_image, tap01), imageLoad(accum_1A_image, tap11),
-			imageLoad(accum_2A_image, tap00), imageLoad(accum_2A_image, tap10),
-			imageLoad(accum_2A_image, tap01), imageLoad(accum_2A_image, tap11),
-			historyFrac, expectedPrevDisparity, parallaxPixelScale, HISTORY_PIXEL_TOLERANCE,
-			currentColorAccumilation, currentDataAccumilation, historyConfidence);
+	// First pass: reproject at the anchor this frame's own content implies.
+	float historyConfidence;
+	float historyShift;
+	bool historyInvalid;
+	reprojectHistory(rayOrigin + rayDirectionCenter * anchorDistance, uv, size, parallaxPixelScale,
+		currentColorAccumilation, currentDataAccumilation, historyConfidence, historyShift, historyInvalid);
+
+	float neighbourhoodAlpha = clamp(wideColor.a, 0.0, 1.0);
+	if (clamp(currentColorAccumilation.a, 0.0, 1.0) > neighbourhoodAlpha + HISTORY_REANCHOR_ALPHA){
+		float reanchorDistance = clamp(currentDataAccumilation.b, minstep, maxTheoreticalStep);
+		reprojectHistory(rayOrigin + rayDirectionCenter * reanchorDistance, uv, size, parallaxPixelScale,
+			currentColorAccumilation, currentDataAccumilation, historyConfidence, historyShift, historyInvalid);
 	}
-	else{
-		resolveHistory(
-			imageLoad(accum_1B_image, tap00), imageLoad(accum_1B_image, tap10),
-			imageLoad(accum_1B_image, tap01), imageLoad(accum_1B_image, tap11),
-			imageLoad(accum_2B_image, tap00), imageLoad(accum_2B_image, tap10),
-			imageLoad(accum_2B_image, tap01), imageLoad(accum_2B_image, tap11),
-			historyFrac, expectedPrevDisparity, parallaxPixelScale, HISTORY_PIXEL_TOLERANCE,
-			currentColorAccumilation, currentDataAccumilation, historyConfidence);
-	}
+
+	float historyTrust = 1.0 - smoothstep(0.0, CLAMP_RELAX_PIXELS, historyShift);
+	bool hardReset = override || historyInvalid;
+	float usingaccumA = genericData.data.isAccumulationA;
 
 	historyConfidence = max(historyConfidence, historyTrust);
 
@@ -1196,7 +1240,7 @@ void main() {
 
 	blendAccumulation(
 		lightColor, currentDistances, spatialColor, spatialDistance,
-		historyConfidence, accumdecay, travelspeed, expectedPrevGeometry, hardReset,
+		historyConfidence, accumdecay, travelspeed, expectedPrevGeometry, geometryTolerance, hardReset,
 		currentColorAccumilation, currentDataAccumilation);
 
 
